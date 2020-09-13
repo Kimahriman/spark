@@ -325,7 +325,7 @@ abstract class SchemaPruningSuite
       checkAnswer(query, Row(Array("Z."), "Susan") :: Nil)
     }
   }
-   
+
   testSchemaPruning("select explode of nested field of array of struct") {
     // Config combinations
     val configs = Seq((true, true), (true, false), (false, true), (false, false))
