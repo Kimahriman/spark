@@ -15,23 +15,26 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.execution
+package org.apache.spark
 
-import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
-import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.annotation.DeveloperApi
 
-/** Query execution that skips re-analysis and optimize. */
-class AlreadyOptimizedExecution(
-    session: SparkSession,
-    plan: LogicalPlan) extends QueryExecution(session, plan) {
-  override lazy val analyzed: LogicalPlan = plan
-  override lazy val optimizedPlan: LogicalPlan = plan
-}
+/**
+ * :: DeveloperApi ::
+ * A TaskContext aware iterator.
+ *
+ * As the Python evaluation consumes the parent iterator in a separate thread,
+ * it could consume more data from the parent even after the task ends and the parent is closed.
+ * If an off-heap access exists in the parent iterator, it could cause segmentation fault
+ * which crashes the executor.
+ * Thus, we should use [[ContextAwareIterator]] to stop consuming after the task ends.
+ */
+@DeveloperApi
+class ContextAwareIterator[+T](val context: TaskContext, val delegate: Iterator[T])
+  extends Iterator[T] {
 
-object AlreadyOptimized {
-  def dataFrame(sparkSession: SparkSession, optimized: LogicalPlan): DataFrame = {
-    val qe = new AlreadyOptimizedExecution(sparkSession, optimized)
-    new Dataset[Row](qe, RowEncoder(qe.analyzed.schema))
-  }
+  override def hasNext: Boolean =
+    !context.isCompleted() && !context.isInterrupted() && delegate.hasNext
+
+  override def next(): T = delegate.next()
 }

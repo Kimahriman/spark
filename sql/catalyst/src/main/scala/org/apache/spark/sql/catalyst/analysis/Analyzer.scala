@@ -129,8 +129,7 @@ object AnalysisContext {
  */
 class Analyzer(
     override val catalogManager: CatalogManager,
-    conf: SQLConf,
-    maxIterations: Int)
+    conf: SQLConf)
   extends RuleExecutor[LogicalPlan] with CheckAnalysis with LookupCatalog {
 
   private val v1SessionCatalog: SessionCatalog = catalogManager.v1SessionCatalog
@@ -141,15 +140,11 @@ class Analyzer(
   def this(catalog: SessionCatalog, conf: SQLConf) = {
     this(
       new CatalogManager(conf, FakeV2SessionCatalog, catalog),
-      conf,
-      conf.analyzerMaxIterations)
-  }
-
-  def this(catalogManager: CatalogManager, conf: SQLConf) = {
-    this(catalogManager, conf, conf.analyzerMaxIterations)
+      conf)
   }
 
   def executeAndCheck(plan: LogicalPlan, tracker: QueryPlanningTracker): LogicalPlan = {
+    if (plan.analyzed) return plan
     AnalysisHelper.markInAnalyzer {
       val analyzed = executeAndTrack(plan, tracker)
       try {
@@ -181,9 +176,9 @@ class Analyzer(
    * If the plan cannot be resolved within maxIterations, analyzer will throw exception to inform
    * user to increase the value of SQLConf.ANALYZER_MAX_ITERATIONS.
    */
-  protected val fixedPoint =
+  protected def fixedPoint =
     FixedPoint(
-      maxIterations,
+      conf.analyzerMaxIterations,
       errorOnExceed = true,
       maxIterationsSetting = SQLConf.ANALYZER_MAX_ITERATIONS.key)
 
@@ -199,7 +194,7 @@ class Analyzer(
    */
   val postHocResolutionRules: Seq[Rule[LogicalPlan]] = Nil
 
-  lazy val batches: Seq[Batch] = Seq(
+  override def batches: Seq[Batch] = Seq(
     Batch("Substitution", fixedPoint,
       CTESubstitution,
       WindowsSubstitution,
@@ -1203,6 +1198,14 @@ class Analyzer(
             if oldVersion.outputSet.intersect(conflictingAttributes).nonEmpty =>
           Seq((oldVersion, oldVersion.copy(output = output.map(_.newInstance()))))
 
+        case oldVersion @ FlatMapCoGroupsInPandas(_, _, _, output, _, _)
+            if oldVersion.outputSet.intersect(conflictingAttributes).nonEmpty =>
+          Seq((oldVersion, oldVersion.copy(output = output.map(_.newInstance()))))
+
+        case oldVersion @ MapInPandas(_, output, _)
+            if oldVersion.outputSet.intersect(conflictingAttributes).nonEmpty =>
+          Seq((oldVersion, oldVersion.copy(output = output.map(_.newInstance()))))
+
         case oldVersion: Generate
             if oldVersion.producedAttributes.intersect(conflictingAttributes).nonEmpty =>
           val newOutput = oldVersion.generatorOutput.map(_.newInstance())
@@ -1369,10 +1372,10 @@ class Analyzer(
       case a @ Aggregate(groupingExprs, aggExprs, appendColumns: AppendColumns) =>
         a.mapExpressions(resolveExpressionTopDown(_, appendColumns))
 
-      case o: OverwriteByExpression if !o.outputResolved =>
-        // do not resolve expression attributes until the query attributes are resolved against the
-        // table by ResolveOutputRelation. that rule will alias the attributes to the table's names.
-        o
+      case o: OverwriteByExpression if o.table.resolved =>
+        // The delete condition of `OverwriteByExpression` will be passed to the table
+        // implementation and should be resolved based on the table schema.
+        o.copy(deleteExpr = resolveExpressionBottomUp(o.deleteExpr, o.table))
 
       case m @ MergeIntoTable(targetTable, sourceTable, _, _, _)
         if !m.resolved && targetTable.resolved && sourceTable.resolved =>
@@ -2717,7 +2720,10 @@ class Analyzer(
 
     private def getNondeterToAttr(exprs: Seq[Expression]): Map[Expression, NamedExpression] = {
       exprs.filterNot(_.deterministic).flatMap { expr =>
-        val leafNondeterministic = expr.collect { case n: Nondeterministic => n }
+        val leafNondeterministic = expr.collect {
+          case n: Nondeterministic => n
+          case udf: UserDefinedExpression if !udf.deterministic => udf
+        }
         leafNondeterministic.distinct.map { e =>
           val ne = e match {
             case n: NamedExpression => n

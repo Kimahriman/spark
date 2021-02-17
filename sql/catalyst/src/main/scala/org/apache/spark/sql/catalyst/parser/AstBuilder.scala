@@ -490,9 +490,11 @@ class AstBuilder(conf: SQLConf) extends SqlBaseBaseVisitor[AnyRef] with Logging 
    */
   override def visitPartitionSpec(
       ctx: PartitionSpecContext): Map[String, Option[String]] = withOrigin(ctx) {
+    val legacyNullAsString =
+      conf.getConf(SQLConf.LEGACY_PARSE_NULL_PARTITION_SPEC_AS_STRING_LITERAL)
     val parts = ctx.partitionVal.asScala.map { pVal =>
       val name = pVal.identifier.getText
-      val value = Option(pVal.constant).map(visitStringConstant)
+      val value = Option(pVal.constant).map(v => visitStringConstant(v, legacyNullAsString))
       name -> value
     }
     // Before calling `toMap`, we check duplicated keys to avoid silently ignore partition values
@@ -518,8 +520,11 @@ class AstBuilder(conf: SQLConf) extends SqlBaseBaseVisitor[AnyRef] with Logging 
    * main purpose is to prevent slight differences due to back to back conversions i.e.:
    * String -> Literal -> String.
    */
-  protected def visitStringConstant(ctx: ConstantContext): String = withOrigin(ctx) {
+  protected def visitStringConstant(
+      ctx: ConstantContext,
+      legacyNullAsString: Boolean): String = withOrigin(ctx) {
     ctx match {
+      case _: NullLiteralContext if !legacyNullAsString => null
       case s: StringLiteralContext => createString(s)
       case o => o.getText
     }
@@ -723,7 +728,11 @@ class AstBuilder(conf: SQLConf) extends SqlBaseBaseVisitor[AnyRef] with Logging 
     val withProject = if (aggregationClause == null && havingClause != null) {
       if (conf.getConf(SQLConf.LEGACY_HAVING_WITHOUT_GROUP_BY_AS_WHERE)) {
         // If the legacy conf is set, treat HAVING without GROUP BY as WHERE.
-        withHavingClause(havingClause, createProject())
+        val predicate = expression(havingClause.booleanExpression) match {
+          case p: Predicate => p
+          case e => Cast(e, BooleanType)
+        }
+        Filter(predicate, createProject())
       } else {
         // According to SQL standard, HAVING without GROUP BY means global aggregate.
         withHavingClause(havingClause, Aggregate(Nil, namedExpressions, withFilter))
