@@ -100,3 +100,8 @@ spark-warehouse/
 
 # For SBT
 .jvmopts
+
+metals.sbt
+.metals
+.bloop
+.vscode
