@@ -99,7 +99,7 @@ class OptimizeWithFieldsSuite extends PlanTest {
     val correctAnswer = testRelation
       .select(
         Alias(UpdateFields('a, WithField("b1", Literal(5)) :: Nil), "out1")(),
-        Alias(UpdateFields('a, WithField("B1", Literal(5)) :: Nil), "out2")())
+        Alias(UpdateFields('a, WithField("b1", Literal(5)) :: Nil), "out2")())
       .analyze
 
     comparePlans(optimized, correctAnswer)
