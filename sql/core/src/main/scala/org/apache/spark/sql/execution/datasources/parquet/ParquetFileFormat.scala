@@ -388,6 +388,8 @@ object ParquetFileFormat extends Logging {
   private[parquet] def readSchema(
       footers: Seq[Footer], sparkSession: SparkSession): Option[StructType] = {
 
+    val resolver = sparkSession.sessionState.conf.resolver
+
     val converter = new ParquetToSparkSchemaConverter(
       sparkSession.sessionState.conf.isParquetBinaryAsString,
       sparkSession.sessionState.conf.isParquetINT96AsTimestamp)
@@ -432,7 +434,7 @@ object ParquetFileFormat extends Logging {
     }
 
     finalSchemas.reduceOption { (left, right) =>
-      try left.merge(right) catch { case e: Throwable =>
+      try left.merge(right, resolver) catch { case e: Throwable =>
         throw new SparkException(s"Failed to merge incompatible schemas $left and $right", e)
       }
     }
