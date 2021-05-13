@@ -673,11 +673,11 @@ class DataFrameSetOperationsSuite extends QueryTest with SharedSparkSession {
       StructField("a", StringType)))
     val nestedStructValues2 = Row("b", "a")
 
-    val df1: DataFrame = spark.createDataFrame(
+    val df1 = spark.createDataFrame(
       sparkContext.parallelize(Row(nestedStructValues1) :: Nil),
       StructType(Seq(StructField("topLevelCol", nestedStructType1))))
 
-    val df2: DataFrame = spark.createDataFrame(
+    val df2 = spark.createDataFrame(
       sparkContext.parallelize(Row(nestedStructValues2) :: Nil),
       StructType(Seq(StructField("topLevelCol", nestedStructType2))))
 
@@ -705,11 +705,11 @@ class DataFrameSetOperationsSuite extends QueryTest with SharedSparkSession {
     ))
     val nestedStructValues2 = Row(Row("aa"), Row("bb"))
 
-    val df1: DataFrame = spark.createDataFrame(
+    val df1 = spark.createDataFrame(
       sparkContext.parallelize(Row(nestedStructValues1) :: Nil),
       StructType(Seq(StructField("topLevelCol", nestedStructType1))))
 
-    val df2: DataFrame = spark.createDataFrame(
+    val df2 = spark.createDataFrame(
       sparkContext.parallelize(Row(nestedStructValues2) :: Nil),
       StructType(Seq(StructField("topLevelCol", nestedStructType2))))
 
@@ -749,7 +749,7 @@ class DataFrameSetOperationsSuite extends QueryTest with SharedSparkSession {
         depthCounter -= 1
       }
 
-      val df: DataFrame = spark.createDataFrame(
+      val df = spark.createDataFrame(
         sparkContext.parallelize(Row(struct) :: Nil),
         StructType(Seq(StructField("nested0Col0", structType))))
 
