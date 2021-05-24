@@ -317,7 +317,7 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     val add3 = Add(add1, add2)
     val condition = (GreaterThan(add3, Literal(3)), add3) :: Nil
 
-    val caseWhenExpr = CaseWhen(condition, None)
+    val caseWhenExpr = CaseWhen(condition, Add(add3, Literal(1)))
     val equivalence = new EquivalentExpressions
     equivalence.addExprTree(caseWhenExpr)
 
@@ -408,6 +408,7 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     // Decimal `Literal` will add the value by `addReferenceObj`.
     // So if `p` is replaced by subexpression, the literal will be reused.
     assert(code.value.toString == "((Decimal) references[0] /* literal */)")
+    assert(equivalence.getAllEquivalentExprs().count(_.size == 2) == 0)
   }
 }
 
