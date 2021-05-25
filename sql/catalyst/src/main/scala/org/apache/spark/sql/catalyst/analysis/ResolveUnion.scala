@@ -24,7 +24,6 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.{CombineUnions}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project, Union}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.trees.AlwaysProcess
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.SchemaUtils
 
@@ -80,7 +79,7 @@ object ResolveUnion extends Rule[LogicalPlan] {
       left: LogicalPlan,
       right: LogicalPlan,
       allowMissingCol: Boolean): (Seq[NamedExpression], Seq[NamedExpression]) = {
-    val resolver = SQLConf.get.resolver
+    val resolver = conf.resolver
     val leftOutputAttrs = left.output
     val rightOutputAttrs = right.output
 
@@ -155,7 +154,7 @@ object ResolveUnion extends Rule[LogicalPlan] {
 
   // Check column name duplication
   private def checkColumnNames(left: LogicalPlan, right: LogicalPlan): Unit = {
-    val caseSensitiveAnalysis = SQLConf.get.caseSensitiveAnalysis
+    val caseSensitiveAnalysis = conf.caseSensitiveAnalysis
     val leftOutputAttrs = left.output
     val rightOutputAttrs = right.output
 
