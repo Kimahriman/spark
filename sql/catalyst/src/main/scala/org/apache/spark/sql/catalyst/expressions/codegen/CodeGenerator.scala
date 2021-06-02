@@ -1040,7 +1040,8 @@ class CodegenContext extends Logging {
   def subexpressionEliminationForWholeStageCodegen(expressions: Seq[Expression]): SubExprCodes = {
     // Create a clear EquivalentExpressions and SubExprEliminationState mapping
     val equivalentExpressions: EquivalentExpressions = new EquivalentExpressions
-    val localSubExprEliminationExprs = mutable.HashMap.empty[Expression, SubExprEliminationState]
+    val localSubExprEliminationExprsForNonSplit =
+      mutable.HashMap.empty[Expression, SubExprEliminationState]
 
     // Add each expression tree and compute the common subexpressions.
     expressions.foreach(equivalentExpressions.addExprTree(_))
@@ -1048,13 +1049,16 @@ class CodegenContext extends Logging {
     // Get all the expressions that appear at least twice and set up the state for subexpression
     // elimination.
     val commonExprs = equivalentExpressions.getAllEquivalentExprs(1)
-    lazy val commonExprVals = commonExprs.map(_.head.genCode(this))
 
-    lazy val nonSplitExprCode = {
-      commonExprs.zip(commonExprVals).map { case (exprs, eval) =>
-        // Generate the code for this expression tree.
-        val state = SubExprEliminationState(eval.isNull, eval.value)
-        exprs.foreach(localSubExprEliminationExprs.put(_, state))
+    val nonSplitExprCode = {
+      commonExprs.map { exprs =>
+        val eval = withSubExprEliminationExprs(localSubExprEliminationExprsForNonSplit.toMap) {
+          val eval = exprs.head.genCode(this)
+          // Generate the code for this expression tree.
+          val state = SubExprEliminationState(eval.isNull, eval.value)
+          exprs.foreach(localSubExprEliminationExprsForNonSplit.put(_, state))
+          Seq(eval)
+        }.head
         eval.code.toString
       }
     }
@@ -1069,11 +1073,19 @@ class CodegenContext extends Logging {
     }.unzip
 
     val splitThreshold = SQLConf.get.methodSplitThreshold
-    val codes = if (commonExprVals.map(_.code.length).sum > splitThreshold) {
+
+    val (codes, subExprsMap, exprCodes) = if (nonSplitExprCode.map(_.length).sum > splitThreshold) {
       if (inputVarsForAllFuncs.map(calculateParamLengthFromExprValues).forall(isValidParamLength)) {
-        commonExprs.zipWithIndex.map { case (exprs, i) =>
+        val localSubExprEliminationExprs =
+          mutable.HashMap.empty[Expression, SubExprEliminationState]
+
+        val splitCodes = commonExprs.zipWithIndex.map { case (exprs, i) =>
           val expr = exprs.head
-          val eval = commonExprVals(i)
+          val eval = withSubExprEliminationExprs(localSubExprEliminationExprs.toMap) {
+            Seq(expr.genCode(this))
+          }.head
+
+          val value = addMutableState(javaType(expr.dataType), "subExprValue")
 
           val isNullLiteral = eval.isNull match {
             case TrueLiteral | FalseLiteral => true
@@ -1091,22 +1103,21 @@ class CodegenContext extends Logging {
           val inputVars = inputVarsForAllFuncs(i)
           val argList =
             inputVars.map(v => s"${CodeGenerator.typeName(v.javaType)} ${v.variableName}")
-          val returnType = javaType(expr.dataType)
           val fn =
             s"""
-               |private $returnType $fnName(${argList.mkString(", ")}) {
+               |private void $fnName(${argList.mkString(", ")}) {
                |  ${eval.code}
                |  $isNullEvalCode
-               |  return ${eval.value};
+               |  $value = ${eval.value};
                |}
                """.stripMargin
 
-          val value = freshName("subExprValue")
-          val state = SubExprEliminationState(isNull, JavaCode.variable(value, expr.dataType))
+          val state = SubExprEliminationState(isNull, JavaCode.global(value, expr.dataType))
           exprs.foreach(localSubExprEliminationExprs.put(_, state))
           val inputVariables = inputVars.map(_.variableName).mkString(", ")
-          s"$returnType $value = ${addNewFunction(fnName, fn)}($inputVariables);"
+          s"${addNewFunction(fnName, fn)}($inputVariables);"
         }
+        (splitCodes, localSubExprEliminationExprs, exprCodesNeedEvaluate)
       } else {
         val errMsg = "Failed to split subexpression code into small functions because the " +
           "parameter length of at least one split function went over the JVM limit: " +
@@ -1115,13 +1126,13 @@ class CodegenContext extends Logging {
           throw new IllegalStateException(errMsg)
         } else {
           logInfo(errMsg)
-          nonSplitExprCode
+          (nonSplitExprCode, localSubExprEliminationExprsForNonSplit, Seq.empty)
         }
       }
     } else {
-      nonSplitExprCode
+      (nonSplitExprCode, localSubExprEliminationExprsForNonSplit, Seq.empty)
     }
-    SubExprCodes(codes, localSubExprEliminationExprs.toMap, exprCodesNeedEvaluate.flatten)
+    SubExprCodes(codes, subExprsMap.toMap, exprCodes.flatten)
   }
 
   /**
