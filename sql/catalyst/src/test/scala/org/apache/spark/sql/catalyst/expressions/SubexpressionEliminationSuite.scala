@@ -193,18 +193,6 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
   test("Children of conditional expressions: CaseWhen") {
     val add1 = Add(Literal(1), Literal(2))
     val add2 = Add(Literal(2), Literal(3))
-    val conditions1 = (GreaterThan(add2, Literal(3)), add1) ::
-      (GreaterThan(add2, Literal(4)), add1) ::
-      (GreaterThan(add2, Literal(5)), add1) :: Nil
-
-    val caseWhenExpr1 = CaseWhen(conditions1, None)
-    val equivalence1 = new EquivalentExpressions
-    equivalence1.addExprTree(caseWhenExpr1)
-
-    // `add2` is repeatedly in all conditions.
-    assert(equivalence1.getAllEquivalentExprs().count(_.size == 2) == 1)
-    assert(equivalence1.getAllEquivalentExprs().filter(_.size == 2).head == Seq(add2, add2))
-
     val conditions2 = (GreaterThan(add1, Literal(3)), add1) ::
       (GreaterThan(add2, Literal(4)), add1) ::
       (GreaterThan(add2, Literal(5)), add1) :: Nil
@@ -227,34 +215,6 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     equivalence3.addExprTree(caseWhenExpr3)
     assert(equivalence3.getAllEquivalentExprs().count(_.size == 2) == 0)
   }
-
-  test("Children of conditional expressions: Coalesce") {
-    val add1 = Add(Literal(1), Literal(2))
-    val add2 = Add(Literal(2), Literal(3))
-    val conditions1 = GreaterThan(add2, Literal(3)) ::
-      GreaterThan(add2, Literal(4)) ::
-      GreaterThan(add2, Literal(5)) :: Nil
-
-    val coalesceExpr1 = Coalesce(conditions1)
-    val equivalence1 = new EquivalentExpressions
-    equivalence1.addExprTree(coalesceExpr1)
-
-    // `add2` is repeatedly in all conditions.
-    assert(equivalence1.getAllEquivalentExprs().count(_.size == 2) == 1)
-    assert(equivalence1.getAllEquivalentExprs().filter(_.size == 2).head == Seq(add2, add2))
-
-    // Negative case. `add1` and `add2` both are not used in all branches.
-    val conditions2 = GreaterThan(add1, Literal(3)) ::
-      GreaterThan(add2, Literal(4)) ::
-      GreaterThan(add2, Literal(5)) :: Nil
-
-    val coalesceExpr2 = Coalesce(conditions2)
-    val equivalence2 = new EquivalentExpressions
-    equivalence2.addExprTree(coalesceExpr2)
-
-    assert(equivalence2.getAllEquivalentExprs().count(_.size == 2) == 0)
-  }
-
 
   test("SPARK-35410: SubExpr elimination should not include redundant child exprs " +
     "for conditional expressions") {
@@ -372,18 +332,37 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
       Seq(Seq(add, add), Seq(Add(Literal(3), add), Add(Literal(3), add))))
   }
 
-  test("SPARK-35886: PromotePrecision should not overwrite genCode") {
-    val p = PromotePrecision(Literal(Decimal("10.1")))
+  test("SPARK-35564: Subexpressions should be extracted from conditional values if that value "
+    + "will always be evaluated elsewhere") {
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val add1 = Add(Literal(1), Literal(2))
+      val add2 = Add(Literal(2), Literal(3))
+      val conditions1 = (GreaterThan(add1, Literal(3)), add1) ::
+        (GreaterThan(add2, Literal(4)), add1) :: Nil
 
-    val ctx = new CodegenContext()
-    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(Seq(p, p))
-    val code = ctx.withSubExprEliminationExprs(subExprs.states) {
-      Seq(p.genCode(ctx))
-    }.head
-    // Decimal `Literal` will add the value by `addReferenceObj`.
-    // So if `p` is replaced by subexpression, the literal will be reused.
-    assert(code.value.toString == "((Decimal) references[0] /* literal */)")
-    assert(equivalence.getAllEquivalentExprs().count(_.size == 2) == 0)
+      val caseWhenExpr1 = CaseWhen(conditions1, None)
+      val equivalence1 = new EquivalentExpressions
+      equivalence1.addExprTree(caseWhenExpr1)
+
+      // `add1` is evaluated once in the first condition, and optionally in the first value
+      assert(equivalence1.getAllEquivalentExprs(1).size == 1)
+
+      val conditions2 = (GreaterThan(add1, Literal(3)), add1) :: Nil
+
+      val caseWhenExpr2 = CaseWhen(conditions2, None)
+      val equivalence2 = new EquivalentExpressions
+      equivalence2.addExprTree(caseWhenExpr2)
+
+      // `add1` is evaluated once in the first condition, and optionally in the first value
+      assert(equivalence2.getAllEquivalentExprs(1).size == 1)
+
+      val ifExpr1 = If(GreaterThan(add1, Literal(3)), add1, add2)
+      val equivalence3 = new EquivalentExpressions
+      equivalence3.addExprTree(ifExpr1)
+
+      // `add1` is evaluated once in the condition, and optionally in the true value
+      assert(equivalence3.getAllEquivalentExprs(1).size == 1)
+    }
   }
 }
 
