@@ -78,7 +78,7 @@ class EquivalentExpressions {
         true
       } else {
         conditionalEquivalenceMap.put(e, mutable.ArrayBuffer(expr))
-        false
+        equivalenceMap.contains(e)
       }
     } else {
       false
@@ -220,7 +220,7 @@ class EquivalentExpressions {
     equivalenceMap.values.map(_.toSeq)
       .map(exprs => exprs ++ conditionalEquivalenceMap.getOrElse(Expr(exprs.head), Seq.empty))
       .filter(_.size > repeatTimes).toSeq
-      .sortBy(_.head)(new ExpressionContainmentOrdering)
+      .sortBy(_.head.collect({ case e => e }).size)
   }
 
   /**
