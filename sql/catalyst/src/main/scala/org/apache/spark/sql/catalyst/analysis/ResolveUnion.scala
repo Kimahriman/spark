@@ -39,34 +39,43 @@ object ResolveUnion extends Rule[LogicalPlan] {
    * already contain them. Currently we don't support merging structs nested inside of arrays
    * or maps.
    */
-  private def addFields(col: Expression, expectedFields: Seq[StructField]): Expression = {
+  private def addFields(col: Expression, targetType: StructType): Expression = {
     assert(col.dataType.isInstanceOf[StructType], "Only support StructType.")
 
     val resolver = conf.resolver
     val colType = col.dataType.asInstanceOf[StructType]
-    val newStructFields = expectedFields.flatMap { expectedField =>
+
+    val newStructFields = mutable.ArrayBuffer.empty[Expression]
+
+    targetType.fields.foreach { expectedField =>
       val currentField = colType.fields.find(f => resolver(f.name, expectedField.name))
 
       val newExpression = (currentField, expectedField.dataType) match {
         case (Some(cf), expectedType: StructType) if cf.dataType.isInstanceOf[StructType] =>
-            val extractedValue = ExtractValue(col, Literal(cf.name), resolver)
-            val combinedStruct = addFields(extractedValue, expectedType.fields)
-            if (extractedValue.nullable) {
-              If(IsNull(extractedValue),
-                Literal(null, combinedStruct.dataType),
-                combinedStruct)
-            } else {
-              combinedStruct
-            }
+          val extractedValue = ExtractValue(col, Literal(cf.name), resolver)
+          addFields(extractedValue, expectedType)
         case (Some(cf), _) =>
           ExtractValue(col, Literal(cf.name), resolver)
         case (None, expectedType) =>
           Literal(null, expectedType)
       }
-      Literal(expectedField.name) :: newExpression :: Nil
+      newStructFields ++= Literal(expectedField.name) :: newExpression :: Nil
     }
-    CreateNamedStruct(newStructFields)
+
+    colType.fields
+      .filter(f => targetType.fields.find(tf => resolver(f.name, tf.name)).isEmpty)
+      .foreach { f =>
+        newStructFields ++= Literal(f.name) :: ExtractValue(col, Literal(f.name), resolver) :: Nil
+      }
+
+    val newStruct = CreateNamedStruct(newStructFields.toSeq)
+    if (col.nullable) {
+      If(IsNull(col), Literal(null, newStruct.dataType), newStruct)
+    } else {
+      newStruct
+    }
   }
+
 
 
   /**
@@ -93,14 +102,11 @@ object ResolveUnion extends Rule[LogicalPlan] {
         (foundDt, lattr.dataType) match {
           case (source: StructType, target: StructType)
               if allowMissingCol && !source.sameType(target) =>
-            // Having an output with same name, but different struct type.
-            // We need to add missing fields. Note that if there are deeply nested structs such as
-            // nested struct of array in struct, we don't support to add missing deeply nested field
-            // like that. We will sort columns in the struct expression to make sure two sides of
-            // union have consistent schema.
+            // We have two structs with different types, so make sure the two structs have their
+            // fields in the same order by using `target`'s fields and then inluding any remaining
+            // in `foundAttr`.
             aliased += foundAttr
-            val targetType = target.merge(source, conf.resolver)
-            Alias(addFields(foundAttr, targetType.fields.toSeq), foundAttr.name)()
+            Alias(addFields(foundAttr, target), foundAttr.name)()
           case _ =>
             // We don't need/try to add missing fields if:
             // 1. The attributes of left and right side are the same struct type
