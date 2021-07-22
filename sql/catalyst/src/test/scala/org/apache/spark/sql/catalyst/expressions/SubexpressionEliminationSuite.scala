@@ -194,13 +194,15 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
       (GreaterThan(add2, Literal(4)), add1) ::
       (GreaterThan(add2, Literal(5)), add1) :: Nil
 
-    val caseWhenExpr1 = CaseWhen(conditions1, None)
-    val equivalence1 = new EquivalentExpressions
-    equivalence1.addExprTree(caseWhenExpr1)
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val caseWhenExpr1 = CaseWhen(conditions1, None)
+      val equivalence1 = new EquivalentExpressions
+      equivalence1.addExprTree(caseWhenExpr1)
 
-    // `add2` is repeatedly in all conditions.
-    assert(equivalence1.getAllExprStates().count(_.useCount == 2) == 1)
-    assert(equivalence1.getAllExprStates().filter(_.useCount == 2).head.expr eq add2)
+      // `add2` is repeatedly in all conditions.
+      assert(equivalence1.getAllExprStates().count(_.getUseCount == 3) == 1)
+      assert(equivalence1.getAllExprStates().filter(_.getUseCount == 3).head.expr eq add2)
+    }
 
     val conditions2 = (GreaterThan(add1, Literal(3)), add1) ::
       (GreaterThan(add2, Literal(4)), add1) ::
@@ -232,13 +234,15 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
       GreaterThan(add2, Literal(4)) ::
       GreaterThan(add2, Literal(5)) :: Nil
 
-    val coalesceExpr1 = Coalesce(conditions1)
-    val equivalence1 = new EquivalentExpressions
-    equivalence1.addExprTree(coalesceExpr1)
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val coalesceExpr1 = Coalesce(conditions1)
+      val equivalence1 = new EquivalentExpressions
+      equivalence1.addExprTree(coalesceExpr1)
 
-    // `add2` is repeatedly in all conditions.
-    assert(equivalence1.getAllExprStates().count(_.useCount == 2) == 1)
-    assert(equivalence1.getAllExprStates().filter(_.useCount == 2).head.expr eq add2)
+      // `add2` is repeatedly in all conditions.
+      assert(equivalence1.getAllExprStates().count(_.getUseCount == 3) == 1)
+      assert(equivalence1.getAllExprStates().filter(_.getUseCount == 3).head.expr eq add2)
+    }
 
     // Negative case. `add1` and `add2` both are not used in all branches.
     val conditions2 = GreaterThan(add1, Literal(3)) ::
@@ -369,6 +373,44 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
 
     // `add1` is not in the elseValue, so we can't extract it from the branches
     assert(equivalence.getAllExprStates().count(_.useCount == 2) == 0)
+  }
+
+  test("SPARK-35564: Subexpressions should be extracted from conditional values if that value "
+    + "will always be evaluated elsewhere") {
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val add1 = Add(Literal(1), Literal(2))
+      val add2 = Add(Literal(2), Literal(3))
+
+      val conditions1 = (GreaterThan(add1, Literal(3)), add1) :: Nil
+      val caseWhenExpr1 = CaseWhen(conditions1, None)
+      val equivalence1 = new EquivalentExpressions
+      equivalence1.addExprTree(caseWhenExpr1)
+
+      // `add1` is evaluated once in the first condition, and optionally in the first value
+      assert(equivalence1.getCommonSubexpressions.size == 1)
+
+      val ifExpr = If(GreaterThan(add1, Literal(3)), add1, add2)
+      val equivalence2 = new EquivalentExpressions
+      equivalence2.addExprTree(ifExpr)
+
+      // `add1` is evaluated once in the condition, and optionally in the true value
+      assert(equivalence2.getCommonSubexpressions.size == 1)
+    }
+  }
+
+  test("SPARK-35564: Don't double count conditional expressions if present in all branches") {
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val add1 = Add(Literal(1), Literal(2))
+      val add2 = Add(Literal(2), Literal(3))
+      val add3 = Add(add2, Literal(4))
+
+      val caseWhenExpr1 = CaseWhen((GreaterThan(add1, Literal(3)), add3) :: Nil, add2)
+      val equivalence1 = new EquivalentExpressions
+      equivalence1.addExprTree(caseWhenExpr1)
+
+      // `add2` will only be evaluated once so don't create a subexpression
+      assert(equivalence1.getCommonSubexpressions.size == 0)
+    }
   }
 
   test("SPARK-35829: SubExprEliminationState keeps children sub exprs") {
