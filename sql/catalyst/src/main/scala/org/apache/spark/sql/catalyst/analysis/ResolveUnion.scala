@@ -53,7 +53,8 @@ object ResolveUnion extends Rule[LogicalPlan] {
       val currentField = colType.fields.find(f => resolver(f.name, expectedField.name))
 
       val newExpression = (currentField, expectedField.dataType) match {
-        case (Some(cf), expectedType: StructType) if cf.dataType.isInstanceOf[StructType] =>
+        case (Some(cf), expectedType: StructType) if cf.dataType.isInstanceOf[StructType] &&
+            !cf.dataType.sameType(expectedType) =>
           val extractedValue = ExtractValue(col, Literal(cf.name), resolver)
           addFields(extractedValue, expectedType, allowMissing)
         case (Some(cf), _) =>
