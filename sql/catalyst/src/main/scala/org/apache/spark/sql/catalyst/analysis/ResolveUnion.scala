@@ -51,7 +51,8 @@ object ResolveUnion extends Rule[LogicalPlan] {
       val currentField = colType.fields.find(f => resolver(f.name, expectedField.name))
 
       val newExpression = (currentField, expectedField.dataType) match {
-        case (Some(cf), expectedType: StructType) if cf.dataType.isInstanceOf[StructType] =>
+        case (Some(cf), expectedType: StructType) if cf.dataType.isInstanceOf[StructType]
+            && !DataType.equalsStructurallyByName(cf.dataType, expectedType, resolver) =>
           val extractedValue = ExtractValue(col, Literal(cf.name), resolver)
           addFields(extractedValue, expectedType)
         case (Some(cf), _) =>
@@ -101,7 +102,7 @@ object ResolveUnion extends Rule[LogicalPlan] {
         val foundDt = foundAttr.dataType
         (foundDt, lattr.dataType) match {
           case (source: StructType, target: StructType)
-              if allowMissingCol && !source.sameType(target) =>
+              if !DataType.equalsStructurallyByName(source, target, resolver) =>
             // We have two structs with different types, so make sure the two structs have their
             // fields in the same order by using `target`'s fields and then inluding any remaining
             // in `foundAttr`.
