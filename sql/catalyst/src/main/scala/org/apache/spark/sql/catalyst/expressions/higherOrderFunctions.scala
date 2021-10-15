@@ -650,7 +650,7 @@ case class MapFilter(
 case class ArrayFilter(
     argument: Expression,
     function: Expression)
-  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback {
+  extends ArrayBasedSimpleHigherOrderFunction {
 
   override def dataType: DataType = argument.dataType
 
@@ -688,6 +688,86 @@ case class ArrayFilter(
       i += 1
     }
     new GenericArrayData(buffer.toSeq)
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.withLambdaVar(elementVar, elementCode => {
+      ctx.withOptionalLambdaVar(indexVar, indexCode => {
+        nullSafeCodeGen(ctx, ev, arg => {
+          val numElements = ctx.freshName("numElements")
+          val count = ctx.freshName("count")
+          val arrayTracker = ctx.freshName("arrayTracker")
+          val arrayData = ctx.freshName("arrayData")
+          val i = ctx.freshName("i")
+          val j = ctx.freshName("j")
+
+          val arrayType = dataType.asInstanceOf[ArrayType]
+
+          val argumentType = argument.dataType.asInstanceOf[ArrayType]
+          val argumentElementJavaType = CodeGenerator.javaType(argumentType.elementType)
+          val trackerInit = CodeGenerator.createArrayData(
+            arrayTracker, BooleanType, numElements, s" $prettyName failed.")
+          val resultInit = CodeGenerator.createArrayData(
+            arrayData, arrayType.elementType, count, s" $prettyName failed.")
+          val extractElement = CodeGenerator.getValue(arg, argumentType.elementType, i)
+
+          val functionCode = function.genCode(ctx)
+
+          val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
+          val elementAssignment = if (elementVar.nullable) {
+            s"""
+              $argumentElementJavaType ${elementCode.value} = $extractElement;
+              boolean ${elementCode.isNull} = ${arg}.isNullAt($i);
+              $elementAtomic.set(${elementCode.value});
+            """
+          } else {
+            s"""
+              $argumentElementJavaType ${elementCode.value} = $extractElement;
+              $elementAtomic.set(${elementCode.value});
+            """
+          }
+          val indexAssignment = indexCode.map(c => {
+            val indexAtomic = ctx.addReferenceObj(indexVar.get.variableName, indexVar.get.value)
+            s"""
+              int ${c.value} = $i;
+              $indexAtomic.set(${c.value});
+            """
+          })
+          val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
+
+          val resultAssignment = CodeGenerator.setArrayElement(arrayTracker, BooleanType,
+            i, functionCode.value, isNull = None)
+
+          val getTrackerValue = CodeGenerator.getValue(arrayTracker, BooleanType, i)
+          val copy = CodeGenerator.createArrayAssignment(arrayData, arrayType.elementType, arg,
+            j, i, arrayType.containsNull)
+
+          s"""
+              |final int $numElements = ${arg}.numElements();
+              |$trackerInit
+              |int $count = 0;
+              |for (int $i = 0; $i < $numElements; $i++) {
+              |  $varAssignments
+              |  ${functionCode.code}
+              |  $resultAssignment
+              |  if ((boolean)${functionCode.value}) {
+              |    $count++;
+              |  }
+              |}
+              |
+              |$resultInit
+              |int $j = 0;
+              |for (int $i = 0; $i < $numElements; $i++) {
+              |  if ($getTrackerValue) {
+              |    $copy
+              |    $j++;
+              |  }
+              |}
+              |${ev.value} = $arrayData;
+            """.stripMargin
+        })
+      })
+    })
   }
 
   override def prettyName: String = "filter"
