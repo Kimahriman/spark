@@ -325,6 +325,34 @@ trait SimpleHigherOrderFunction extends HigherOrderFunction with BinaryLike[Expr
 
 trait ArrayBasedSimpleHigherOrderFunction extends SimpleHigherOrderFunction {
   override def argumentType: AbstractDataType = ArrayType
+
+  def assignElement(ctx: CodegenContext, arrayName: String, elementVar: NamedLambdaVariable,
+      elementCode: ExprCode, index: String): String = {
+    val elementType = elementVar.dataType
+    val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
+    val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
+    if (elementVar.nullable) {
+      s"""
+        ${CodeGenerator.javaType(elementType)} ${elementCode.value} = $extractElement;
+        boolean ${elementCode.isNull} = $arrayName.isNullAt($index);
+        $elementAtomic.set(${elementCode.value});
+      """
+    } else {
+      s"""
+        ${CodeGenerator.javaType(elementType)} ${elementCode.value} = $extractElement;
+        $elementAtomic.set(${elementCode.value});
+      """
+    }
+  }
+
+  def assignIndex(ctx: CodegenContext, indexVar: NamedLambdaVariable, indexCode: ExprCode,
+      index: String): String = {
+    val indexAtomic = ctx.addReferenceObj(indexVar.variableName, indexVar.value)
+    s"""
+      int ${indexCode.value} = $index;
+      $indexAtomic.set(${indexCode.value});
+    """
+  }
 }
 
 trait MapBasedSimpleHigherOrderFunction extends SimpleHigherOrderFunction {
@@ -398,34 +426,13 @@ case class ArrayTransform(
           val arrayData = ctx.freshName("arrayData")
           val i = ctx.freshName("i")
 
-          val argumentType = argument.dataType.asInstanceOf[ArrayType]
-          val argumentElementJavaType = CodeGenerator.javaType(argumentType.elementType)
           val initialization = CodeGenerator.createArrayData(
             arrayData, dataType.elementType, numElements, s" $prettyName failed.")
-          val extractElement = CodeGenerator.getValue(arg, argumentType.elementType, i)
 
           val functionCode = function.genCode(ctx)
 
-          val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
-          val elementAssignment = if (elementVar.nullable) {
-            s"""
-              $argumentElementJavaType ${elementCode.value} = $extractElement;
-              boolean ${elementCode.isNull} = ${arg}.isNullAt($i);
-              $elementAtomic.set(${elementCode.value});
-            """
-          } else {
-            s"""
-              $argumentElementJavaType ${elementCode.value} = $extractElement;
-              $elementAtomic.set(${elementCode.value});
-            """
-          }
-          val indexAssignment = indexCode.map(c => {
-            val indexAtomic = ctx.addReferenceObj(indexVar.get.variableName, indexVar.get.value)
-            s"""
-              int ${c.value} = $i;
-              $indexAtomic.set(${c.value});
-            """
-          })
+          val elementAssignment = assignElement(ctx, arg, elementVar, elementCode, i)
+          val indexAssignment = indexCode.map(c => assignIndex(ctx, indexVar.get, c, i))
           val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
 
           // Some expressions return internal buffers that we have to copy
@@ -703,36 +710,16 @@ case class ArrayFilter(
 
           val arrayType = dataType.asInstanceOf[ArrayType]
 
-          val argumentType = argument.dataType.asInstanceOf[ArrayType]
-          val argumentElementJavaType = CodeGenerator.javaType(argumentType.elementType)
           val trackerInit = CodeGenerator.createArrayData(
             arrayTracker, BooleanType, numElements, s" $prettyName failed.")
           val resultInit = CodeGenerator.createArrayData(
             arrayData, arrayType.elementType, count, s" $prettyName failed.")
-          val extractElement = CodeGenerator.getValue(arg, argumentType.elementType, i)
 
           val functionCode = function.genCode(ctx)
 
           val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
-          val elementAssignment = if (elementVar.nullable) {
-            s"""
-              $argumentElementJavaType ${elementCode.value} = $extractElement;
-              boolean ${elementCode.isNull} = ${arg}.isNullAt($i);
-              $elementAtomic.set(${elementCode.value});
-            """
-          } else {
-            s"""
-              $argumentElementJavaType ${elementCode.value} = $extractElement;
-              $elementAtomic.set(${elementCode.value});
-            """
-          }
-          val indexAssignment = indexCode.map(c => {
-            val indexAtomic = ctx.addReferenceObj(indexVar.get.variableName, indexVar.get.value)
-            s"""
-              int ${c.value} = $i;
-              $indexAtomic.set(${c.value});
-            """
-          })
+          val elementAssignment = assignElement(ctx, arg, elementVar, elementCode, i)
+          val indexAssignment = indexCode.map(c => assignIndex(ctx, indexVar.get, c, i))
           val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
 
           val resultAssignment = CodeGenerator.setArrayElement(arrayTracker, BooleanType,
@@ -801,7 +788,7 @@ case class ArrayExists(
     argument: Expression,
     function: Expression,
     followThreeValuedLogic: Boolean)
-  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback {
+  extends ArrayBasedSimpleHigherOrderFunction {
 
   def this(argument: Expression, function: Expression) = {
     this(
@@ -855,6 +842,50 @@ case class ArrayExists(
     }
   }
 
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.withLambdaVar(elementVar, elementCode => {
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val exists = ctx.freshName("exists")
+        val foundNull = ctx.freshName("foundNull")
+        val i = ctx.freshName("i")
+
+        val functionCode = function.genCode(ctx)
+        val elementAssignment = assignElement(ctx, arg, elementVar, elementCode, i)
+        val threeWayLogic = if (followThreeValuedLogic) TrueLiteral else FalseLiteral
+
+        val nullCheck = if (nullable) {
+          s"""
+            if ($threeWayLogic && !$exists && $foundNull) {
+              ${ev.isNull} = true;
+            }
+          """
+        } else {
+          ""
+        }
+
+        s"""
+            |final int $numElements = ${arg}.numElements();
+            |boolean $exists = false;
+            |boolean $foundNull = false;
+            |int $i = 0;
+            |while ($i < $numElements && !$exists) {
+            |  $elementAssignment
+            |  ${functionCode.code}
+            |  if (${functionCode.isNull}) {
+            |    $foundNull = true;
+            |  } else if (${functionCode.value}) {
+            |    $exists = true;
+            |  }
+            |  $i++;
+            |}
+            |$nullCheck
+            |${ev.value} = $exists;
+          """.stripMargin
+      })
+    })
+  }
+
   override def prettyName: String = "exists"
 
   override protected def withNewChildrenInternal(
@@ -889,7 +920,7 @@ object ArrayExists {
 case class ArrayForAll(
     argument: Expression,
     function: Expression)
-  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback {
+  extends ArrayBasedSimpleHigherOrderFunction {
 
   override def nullable: Boolean =
       super.nullable || function.nullable
@@ -935,6 +966,49 @@ case class ArrayForAll(
     }
   }
 
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.withLambdaVar(elementVar, elementCode => {
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val forall = ctx.freshName("forall")
+        val foundNull = ctx.freshName("foundNull")
+        val i = ctx.freshName("i")
+
+        val functionCode = function.genCode(ctx)
+        val elementAssignment = assignElement(ctx, arg, elementVar, elementCode, i)
+
+        val nullCheck = if (nullable) {
+          s"""
+            if ($forall && $foundNull) {
+              ${ev.isNull} = true;
+            }
+          """
+        } else {
+          ""
+        }
+
+        s"""
+            |final int $numElements = ${arg}.numElements();
+            |boolean $forall = true;
+            |boolean $foundNull = false;
+            |int $i = 0;
+            |while ($i < $numElements && $forall) {
+            |  $elementAssignment
+            |  ${functionCode.code}
+            |  if (${functionCode.isNull}) {
+            |    $foundNull = true;
+            |  } else if (!${functionCode.value}) {
+            |    $forall = false;
+            |  }
+            |  $i++;
+            |}
+            |$nullCheck
+            |${ev.value} = $forall;
+          """.stripMargin
+      })
+    })
+  }
+
   override def prettyName: String = "forall"
 
   override protected def withNewChildrenInternal(
@@ -966,7 +1040,7 @@ case class ArrayAggregate(
     zero: Expression,
     merge: Expression,
     finish: Expression)
-  extends HigherOrderFunction with CodegenFallback with QuaternaryLike[Expression] {
+  extends HigherOrderFunction with QuaternaryLike[Expression] {
 
   def this(argument: Expression, zero: Expression, merge: Expression) = {
     this(argument, zero, merge, LambdaFunction.identity)
@@ -1029,6 +1103,114 @@ case class ArrayAggregate(
       accForFinishVar.value.set(accForMergeVar.value.get)
       finishForEval.eval(input)
     }
+  }
+
+
+  protected def nullSafeCodeGen(
+      ctx: CodegenContext,
+      ev: ExprCode,
+      f: String => String): ExprCode = {
+    val argumentGen = argument.genCode(ctx)
+    val resultCode = f(argumentGen.value)
+
+    if (nullable) {
+      val nullSafeEval = ctx.nullSafeExec(argument.nullable, argumentGen.isNull)(resultCode)
+      ev.copy(code = code"""
+        |${argumentGen.code}
+        |boolean ${ev.isNull} = ${argumentGen.isNull};
+        |${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+        |$nullSafeEval
+      """)
+    } else {
+      ev.copy(code = code"""
+        |${argumentGen.code}
+        |${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+        |$resultCode
+      """, isNull = FalseLiteral)
+    }
+  }
+
+
+  def assignElement(ctx: CodegenContext, arrayName: String, elementVar: NamedLambdaVariable,
+      elementCode: ExprCode, index: String): String = {
+    val elementType = elementVar.dataType
+    val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
+    val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
+    if (elementVar.nullable) {
+      s"""
+        ${CodeGenerator.javaType(elementType)} ${elementCode.value} = $extractElement;
+        boolean ${elementCode.isNull} = $arrayName.isNullAt($index);
+        $elementAtomic.set(${elementCode.value});
+      """
+    } else {
+      s"""
+        ${CodeGenerator.javaType(elementType)} ${elementCode.value} = $extractElement;
+        $elementAtomic.set(${elementCode.value});
+      """
+    }
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.withLambdaVar(accForMergeVar, accForMergeCode => {
+      ctx.withLambdaVar(elementVar, elementCode => {
+        ctx.withLambdaVar(accForFinishVar, accForFinishCode => {
+          nullSafeCodeGen(ctx, ev, arg => {
+            val numElements = ctx.freshName("numElements")
+            val i = ctx.freshName("i")
+
+            val zeroCode = zero.genCode(ctx)
+            val mergeCode = merge.genCode(ctx)
+            val finishCode = finish.genCode(ctx)
+
+            val elementAssignment = assignElement(ctx, arg, elementVar, elementCode, i)
+            val mergeAtomic = ctx.addReferenceObj(accForMergeVar.variableName,
+              accForMergeVar.value)
+            val finishAtomic = ctx.addReferenceObj(accForFinishVar.variableName,
+              accForFinishVar.value)
+
+            val mergeJavaType = CodeGenerator.javaType(accForMergeVar.dataType)
+            val finishJavaType = CodeGenerator.javaType(accForFinishVar.dataType)
+
+            // Some expressions return internal buffers that we have to copy
+            val mergeCopy = if (isPrimitive(merge.dataType)) {
+              s"${mergeCode.value}"
+            } else {
+              s"($mergeJavaType)InternalRow.copyValue(${mergeCode.value})"
+            }
+
+            val nullCheck = if (nullable) {
+              s"${ev.isNull} = ${finishCode.isNull};"
+            } else {
+              ""
+            }
+
+            s"""
+                |final int $numElements = ${arg}.numElements();
+                |${zeroCode.code}
+                |$mergeJavaType ${accForMergeCode.value} = ${zeroCode.value};
+                |$mergeAtomic.set(${accForMergeCode.value});
+                |boolean ${accForMergeCode.isNull} = ${zeroCode.isNull};
+                |
+                |for (int $i = 0; $i < $numElements; $i++) {
+                |  $elementAssignment
+                |  ${mergeCode.code}
+                |  ${accForMergeCode.value} = $mergeCopy;
+                |  ${accForMergeCode.isNull} = ${mergeCode.isNull};
+                |  $mergeAtomic.set(${accForMergeCode.value});
+                |}
+                |
+                |$finishJavaType ${accForFinishCode.value} = ${accForMergeCode.value};
+                |boolean ${accForFinishCode.isNull} = ${accForMergeCode.isNull};
+                |$finishAtomic.set(${accForFinishCode.value});
+                |${finishCode.code}
+                |
+                |${ev.value} = ${finishCode.value};
+                |$nullCheck
+              """.stripMargin
+          })
+        })
+      })
+    })
   }
 
   override def prettyName: String = "aggregate"

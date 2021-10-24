@@ -884,7 +884,7 @@ class CodegenContext extends Logging {
       makeSplitFunction: String => String = identity,
       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
     // TODO: support whole stage codegen
-    if (INPUT_ROW == null || currentVars != null) {
+    if (INPUT_ROW == null || currentVars != null || currentLambdaVars.nonEmpty) {
       expressions.mkString("\n")
     } else {
       splitExpressions(
