@@ -137,16 +137,22 @@ case class LambdaFunction(
   override def eval(input: InternalRow): Any = function.eval(input)
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val functionCode = function.genCode(ctx)
+    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(Seq(function))
+    val functionCode = ctx.withSubExprEliminationExprs(subExprs.states) {
+      Seq(function.genCode(ctx))
+    }.head
+    val subExprCodes = ctx.evaluateSubExprEliminationState(subExprs.states.values)
 
     if (nullable) {
       ev.copy(code = code"""
+        |$subExprCodes
         |${functionCode.code}
         |boolean ${ev.isNull} = ${functionCode.isNull};
         |${CodeGenerator.javaType(dataType)} ${ev.value} = ${functionCode.value};
       """.stripMargin)
     } else {
       ev.copy(code = code"""
+        |$subExprCodes
         |${functionCode.code}
         |${CodeGenerator.javaType(dataType)} ${ev.value} = ${functionCode.value};
       """.stripMargin, isNull = FalseLiteral)
