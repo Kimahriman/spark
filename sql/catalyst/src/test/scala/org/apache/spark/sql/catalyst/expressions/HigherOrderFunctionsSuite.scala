@@ -147,10 +147,12 @@ class HigherOrderFunctionsSuite extends SparkFunSuite with ExpressionEvalHelper 
 
     val plusOne: Expression => Expression = x => x + 1
     val plusIndex: (Expression, Expression) => Expression = (x, i) => x + i
+    val plusOneTwice: Expression => Expression = x => plusOne(x) + plusOne(x)
 
     checkEvaluation(transform(ai0, plusOne), Seq(2, 3, 4))
     checkEvaluation(transform(ai0, plusIndex), Seq(1, 3, 5))
     checkEvaluation(transform(transform(ai0, plusIndex), plusOne), Seq(2, 4, 6))
+    checkEvaluation(transform(ai0, plusOneTwice), Seq(4, 6, 8))
     checkEvaluation(transform(ai1, plusOne), Seq(2, null, 4))
     checkEvaluation(transform(ai1, plusIndex), Seq(1, null, 5))
     checkEvaluation(transform(transform(ai1, plusIndex), plusOne), Seq(2, null, 6))
@@ -162,9 +164,12 @@ class HigherOrderFunctionsSuite extends SparkFunSuite with ExpressionEvalHelper 
 
     val repeatTwice: Expression => Expression = x => Concat(Seq(x, x))
     val repeatIndexTimes: (Expression, Expression) => Expression = (x, i) => StringRepeat(x, i)
+    val repeatIndexTimesTwice: (Expression, Expression) => Expression = (x, i) =>
+      Concat(Seq(StringRepeat(x, i), StringRepeat(x, i)))
 
     checkEvaluation(transform(as0, repeatTwice), Seq("aa", "bb", "cc"))
     checkEvaluation(transform(as0, repeatIndexTimes), Seq("", "b", "cc"))
+    checkEvaluation(transform(as0, repeatIndexTimesTwice), Seq("", "bb", "cccc"))
     checkEvaluation(transform(transform(as0, repeatIndexTimes), repeatTwice),
       Seq("", "bb", "cccc"))
     checkEvaluation(transform(as1, repeatTwice), Seq("aa", null, "cc"))

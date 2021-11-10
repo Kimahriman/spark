@@ -2434,6 +2434,31 @@ class DataFrameFunctionsSuite extends QueryTest with SharedSparkSession {
     testSpecialCases()
   }
 
+  test("transform function - subexpression elimination") {
+    val df = Seq[Seq[Integer]](
+      Seq(1, 9, 8, null, 7),
+      Seq(5, null, 8, 9, 7, 2),
+      Seq.empty,
+      null
+    ).toDF("i")
+
+    val accum = sparkContext.longAccumulator("call")
+    val simpleUDF = udf((l: Integer) => {
+      accum.add(1)
+      l
+    })
+    df.select(transform(col("i"), x => (simpleUDF(x) + 1) * (simpleUDF(x) + 1))).explain("codegen")
+    checkAnswer(df.select(transform(col("i"), x => (simpleUDF(x) + 1) * (simpleUDF(x) + 1))),
+      Seq(
+        Row(Seq(4, 100, 81, null, 64)),
+        Row(Seq(36, null, 81, 100, 64, 9)),
+        Row(Seq.empty),
+        Row(null)))
+
+    // The query gets run twice to test for rdd serialization, with 11 total elements
+    assert(accum.value == 22)
+  }
+
   test("transform function - invalid") {
     val df = Seq(
       (Seq("c", "a", "b"), 1),
