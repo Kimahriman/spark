@@ -105,24 +105,7 @@ case class NamedLambdaVariable(
   lazy val variableName = s"${name}_${exprId.id}"
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val atomicRef = ctx.addReferenceObj(variableName, value)
-    val tmpAtomic = ctx.freshName("tmpAtomic")
-    val boxedType = CodeGenerator.boxedType(dataType)
-
-    if (nullable) {
-      ev.copy(code = code"""
-        Object $tmpAtomic = $atomicRef.get();
-        ${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
-        boolean ${ev.isNull} = $tmpAtomic == null;
-        if (!${ev.isNull}) {
-          ${ev.value} = ($boxedType)$tmpAtomic;
-        }
-      """)
-    } else {
-      ev.copy(code = code"""
-        ${CodeGenerator.javaType(dataType)} ${ev.value} = ($boxedType)$atomicRef.get();
-      """, isNull = FalseLiteral)
-    }
+    ctx.getLambdaVar(variableName)
   }
 }
 
@@ -283,6 +266,37 @@ trait HigherOrderFunction extends Expression with ExpectsInputTypes {
       s"$atomicRef.set($value);"
     }
   }
+
+  protected def assignArrayElement(ctx: CodegenContext, arrayName: String, elementCode: ExprCode,
+      elementVar: NamedLambdaVariable, index: String): String = {
+    val elementType = elementVar.dataType
+    val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
+    val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
+    val atomicAssign = assignAtomic(elementAtomic, elementCode.value,
+      s"$arrayName.isNullAt($index)", elementVar.nullable)
+
+    if (elementVar.nullable) {
+      s"""
+        ${elementCode.value} = $extractElement;
+        ${elementCode.isNull} = $arrayName.isNullAt($index);
+        $atomicAssign
+      """
+    } else {
+      s"""
+        ${elementCode.value} = $extractElement;
+        $atomicAssign
+      """
+    }
+  }
+
+  protected def assignIndex(ctx: CodegenContext, indexCode: ExprCode,
+      indexVar: NamedLambdaVariable, index: String): String = {
+    val indexAtomic = ctx.addReferenceObj(indexVar.variableName, indexVar.value)
+    s"""
+      ${indexCode.value} = $index;
+      ${assignAtomic(indexAtomic, indexCode.value)}
+    """
+  }
 }
 
 /**
@@ -355,21 +369,6 @@ trait SimpleHigherOrderFunction extends HigherOrderFunction with BinaryLike[Expr
 
 trait ArrayBasedSimpleHigherOrderFunction extends SimpleHigherOrderFunction {
   override def argumentType: AbstractDataType = ArrayType
-
-  protected def assignElement(ctx: CodegenContext, arrayName: String,
-      elementVar: NamedLambdaVariable, index: String): String = {
-    val elementType = elementVar.dataType
-    val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
-    val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
-    assignAtomic(elementAtomic, extractElement, s"$arrayName.isNullAt($index)",
-      elementVar.nullable)
-  }
-
-  protected def assignIndex(ctx: CodegenContext, indexVar: NamedLambdaVariable,
-      index: String): String = {
-    val indexAtomic = ctx.addReferenceObj(indexVar.variableName, indexVar.value)
-    assignAtomic(indexAtomic, index)
-  }
 }
 
 trait MapBasedSimpleHigherOrderFunction extends SimpleHigherOrderFunction {
@@ -436,39 +435,45 @@ case class ArrayTransform(
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    nullSafeCodeGen(ctx, ev, arg => {
-      val numElements = ctx.freshName("numElements")
-      val arrayData = ctx.freshName("arrayData")
-      val i = ctx.freshName("i")
+    ctx.withLambdaVars(Seq(elementVar) ++ indexVar, { lambdaExprs =>
+      val elementCode = lambdaExprs.head
+      val indexCode = lambdaExprs.tail.headOption
 
-      val initialization = CodeGenerator.createArrayData(
-        arrayData, dataType.elementType, numElements, s" $prettyName failed.")
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val arrayData = ctx.freshName("arrayData")
+        val i = ctx.freshName("i")
 
-      val functionCode = function.genCode(ctx)
+        val initialization = CodeGenerator.createArrayData(
+          arrayData, dataType.elementType, numElements, s" $prettyName failed.")
 
-      val elementAssignment = assignElement(ctx, arg, elementVar, i)
-      val indexAssignment = indexVar.map(c => assignIndex(ctx, c, i))
-      val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
+        val functionCode = function.genCode(ctx)
 
-      // Some expressions return internal buffers that we have to copy
-      val copy = if (isPrimitive(function.dataType)) {
-        s"${functionCode.value}"
-      } else {
-        s"InternalRow.copyValue(${functionCode.value})"
-      }
-      val resultAssignment = CodeGenerator.setArrayElement(arrayData, dataType.elementType,
-        i, copy, isNull = Some(functionCode.isNull))
+        val elementAssignment = assignArrayElement(ctx, arg, elementCode, elementVar, i)
+        val indexAssignment = indexCode.map(c => assignIndex(ctx, c, indexVar.get, i))
+        val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
 
-      s"""
-          |final int $numElements = ${arg}.numElements();
-          |$initialization
-          |for (int $i = 0; $i < $numElements; $i++) {
-          |  $varAssignments
-          |  ${functionCode.code}
-          |  $resultAssignment
-          |}
-          |${ev.value} = $arrayData;
-        """.stripMargin
+        // Some expressions return internal buffers that we have to copy
+        val copy = if (isPrimitive(function.dataType)) {
+          s"${functionCode.value}"
+        } else {
+          s"InternalRow.copyValue(${functionCode.value})"
+        }
+        val resultNull = if (function.nullable) Some(functionCode.isNull.toString) else None
+        val resultAssignment = CodeGenerator.setArrayElement(arrayData, dataType.elementType,
+          i, copy, isNull = resultNull)
+
+        s"""
+            |final int $numElements = ${arg}.numElements();
+            |$initialization
+            |for (int $i = 0; $i < $numElements; $i++) {
+            |  $varAssignments
+            |  ${functionCode.code}
+            |  $resultAssignment
+            |}
+            |${ev.value} = $arrayData;
+          """.stripMargin
+      })
     })
   }
 
@@ -711,58 +716,63 @@ case class ArrayFilter(
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    nullSafeCodeGen(ctx, ev, arg => {
-      val numElements = ctx.freshName("numElements")
-      val count = ctx.freshName("count")
-      val arrayTracker = ctx.freshName("arrayTracker")
-      val arrayData = ctx.freshName("arrayData")
-      val i = ctx.freshName("i")
-      val j = ctx.freshName("j")
+    ctx.withLambdaVars(Seq(elementVar) ++ indexVar, { lambdaExprs =>
+      val elementCode = lambdaExprs.head
+      val indexCode = lambdaExprs.tail.headOption
 
-      val arrayType = dataType.asInstanceOf[ArrayType]
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val count = ctx.freshName("count")
+        val arrayTracker = ctx.freshName("arrayTracker")
+        val arrayData = ctx.freshName("arrayData")
+        val i = ctx.freshName("i")
+        val j = ctx.freshName("j")
 
-      val trackerInit = CodeGenerator.createArrayData(
-        arrayTracker, BooleanType, numElements, s" $prettyName failed.")
-      val resultInit = CodeGenerator.createArrayData(
-        arrayData, arrayType.elementType, count, s" $prettyName failed.")
+        val arrayType = dataType.asInstanceOf[ArrayType]
 
-      val functionCode = function.genCode(ctx)
+        val trackerInit = CodeGenerator.createArrayData(
+          arrayTracker, BooleanType, numElements, s" $prettyName failed.")
+        val resultInit = CodeGenerator.createArrayData(
+          arrayData, arrayType.elementType, count, s" $prettyName failed.")
 
-      val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
-      val elementAssignment = assignElement(ctx, arg, elementVar, i)
-      val indexAssignment = indexVar.map(c => assignIndex(ctx, c, i))
-      val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
+        val functionCode = function.genCode(ctx)
 
-      val resultAssignment = CodeGenerator.setArrayElement(arrayTracker, BooleanType,
-        i, functionCode.value, isNull = None)
+        val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
+        val elementAssignment = assignArrayElement(ctx, arg, elementCode, elementVar, i)
+        val indexAssignment = indexCode.map(c => assignIndex(ctx, c, indexVar.get, i))
+        val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
 
-      val getTrackerValue = CodeGenerator.getValue(arrayTracker, BooleanType, i)
-      val copy = CodeGenerator.createArrayAssignment(arrayData, arrayType.elementType, arg,
-        j, i, arrayType.containsNull)
+        val resultAssignment = CodeGenerator.setArrayElement(arrayTracker, BooleanType,
+          i, functionCode.value, isNull = None)
 
-      s"""
-          |final int $numElements = ${arg}.numElements();
-          |$trackerInit
-          |int $count = 0;
-          |for (int $i = 0; $i < $numElements; $i++) {
-          |  $varAssignments
-          |  ${functionCode.code}
-          |  $resultAssignment
-          |  if ((boolean)${functionCode.value}) {
-          |    $count++;
-          |  }
-          |}
-          |
-          |$resultInit
-          |int $j = 0;
-          |for (int $i = 0; $i < $numElements; $i++) {
-          |  if ($getTrackerValue) {
-          |    $copy
-          |    $j++;
-          |  }
-          |}
-          |${ev.value} = $arrayData;
-        """.stripMargin
+        val getTrackerValue = CodeGenerator.getValue(arrayTracker, BooleanType, i)
+        val copy = CodeGenerator.createArrayAssignment(arrayData, arrayType.elementType, arg,
+          j, i, arrayType.containsNull)
+
+        s"""
+            |final int $numElements = ${arg}.numElements();
+            |$trackerInit
+            |int $count = 0;
+            |for (int $i = 0; $i < $numElements; $i++) {
+            |  $varAssignments
+            |  ${functionCode.code}
+            |  $resultAssignment
+            |  if ((boolean)${functionCode.value}) {
+            |    $count++;
+            |  }
+            |}
+            |
+            |$resultInit
+            |int $j = 0;
+            |for (int $i = 0; $i < $numElements; $i++) {
+            |  if ($getTrackerValue) {
+            |    $copy
+            |    $j++;
+            |  }
+            |}
+            |${ev.value} = $arrayData;
+          """.stripMargin
+      })
     })
   }
 
@@ -852,44 +862,46 @@ case class ArrayExists(
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    nullSafeCodeGen(ctx, ev, arg => {
-      val numElements = ctx.freshName("numElements")
-      val exists = ctx.freshName("exists")
-      val foundNull = ctx.freshName("foundNull")
-      val i = ctx.freshName("i")
+    ctx.withLambdaVars(Seq(elementVar), { case Seq(elementCode) =>
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val exists = ctx.freshName("exists")
+        val foundNull = ctx.freshName("foundNull")
+        val i = ctx.freshName("i")
 
-      val functionCode = function.genCode(ctx)
-      val elementAssignment = assignElement(ctx, arg, elementVar, i)
-      val threeWayLogic = if (followThreeValuedLogic) TrueLiteral else FalseLiteral
+        val functionCode = function.genCode(ctx)
+        val elementAssignment = assignArrayElement(ctx, arg, elementCode, elementVar, i)
+        val threeWayLogic = if (followThreeValuedLogic) TrueLiteral else FalseLiteral
 
-      val nullCheck = if (nullable) {
+        val nullCheck = if (nullable) {
+          s"""
+            if ($threeWayLogic && !$exists && $foundNull) {
+              ${ev.isNull} = true;
+            }
+          """
+        } else {
+          ""
+        }
+
         s"""
-          if ($threeWayLogic && !$exists && $foundNull) {
-            ${ev.isNull} = true;
-          }
-        """
-      } else {
-        ""
-      }
-
-      s"""
-          |final int $numElements = ${arg}.numElements();
-          |boolean $exists = false;
-          |boolean $foundNull = false;
-          |int $i = 0;
-          |while ($i < $numElements && !$exists) {
-          |  $elementAssignment
-          |  ${functionCode.code}
-          |  if (${functionCode.isNull}) {
-          |    $foundNull = true;
-          |  } else if (${functionCode.value}) {
-          |    $exists = true;
-          |  }
-          |  $i++;
-          |}
-          |$nullCheck
-          |${ev.value} = $exists;
-        """.stripMargin
+            |final int $numElements = ${arg}.numElements();
+            |boolean $exists = false;
+            |boolean $foundNull = false;
+            |int $i = 0;
+            |while ($i < $numElements && !$exists) {
+            |  $elementAssignment
+            |  ${functionCode.code}
+            |  if (${functionCode.isNull}) {
+            |    $foundNull = true;
+            |  } else if (${functionCode.value}) {
+            |    $exists = true;
+            |  }
+            |  $i++;
+            |}
+            |$nullCheck
+            |${ev.value} = $exists;
+          """.stripMargin
+      })
     })
   }
 
@@ -974,43 +986,45 @@ case class ArrayForAll(
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    nullSafeCodeGen(ctx, ev, arg => {
-      val numElements = ctx.freshName("numElements")
-      val forall = ctx.freshName("forall")
-      val foundNull = ctx.freshName("foundNull")
-      val i = ctx.freshName("i")
+    ctx.withLambdaVars(Seq(elementVar), { case Seq(elementCode) =>
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val forall = ctx.freshName("forall")
+        val foundNull = ctx.freshName("foundNull")
+        val i = ctx.freshName("i")
 
-      val functionCode = function.genCode(ctx)
-      val elementAssignment = assignElement(ctx, arg, elementVar, i)
+        val functionCode = function.genCode(ctx)
+        val elementAssignment = assignArrayElement(ctx, arg, elementCode, elementVar, i)
 
-      val nullCheck = if (nullable) {
+        val nullCheck = if (nullable) {
+          s"""
+            if ($forall && $foundNull) {
+              ${ev.isNull} = true;
+            }
+          """
+        } else {
+          ""
+        }
+
         s"""
-          if ($forall && $foundNull) {
-            ${ev.isNull} = true;
-          }
-        """
-      } else {
-        ""
-      }
-
-      s"""
-          |final int $numElements = ${arg}.numElements();
-          |boolean $forall = true;
-          |boolean $foundNull = false;
-          |int $i = 0;
-          |while ($i < $numElements && $forall) {
-          |  $elementAssignment
-          |  ${functionCode.code}
-          |  if (${functionCode.isNull}) {
-          |    $foundNull = true;
-          |  } else if (!${functionCode.value}) {
-          |    $forall = false;
-          |  }
-          |  $i++;
-          |}
-          |$nullCheck
-          |${ev.value} = $forall;
-        """.stripMargin
+            |final int $numElements = ${arg}.numElements();
+            |boolean $forall = true;
+            |boolean $foundNull = false;
+            |int $i = 0;
+            |while ($i < $numElements && $forall) {
+            |  $elementAssignment
+            |  ${functionCode.code}
+            |  if (${functionCode.isNull}) {
+            |    $foundNull = true;
+            |  } else if (!${functionCode.value}) {
+            |    $forall = false;
+            |  }
+            |  $i++;
+            |}
+            |$nullCheck
+            |${ev.value} = $forall;
+          """.stripMargin
+      })
     })
   }
 
@@ -1110,7 +1124,6 @@ case class ArrayAggregate(
     }
   }
 
-
   protected def nullSafeCodeGen(
       ctx: CodegenContext,
       ev: ExprCode,
@@ -1135,63 +1148,89 @@ case class ArrayAggregate(
     }
   }
 
-
-  protected def assignElement(ctx: CodegenContext, arrayName: String,
-      elementVar: NamedLambdaVariable, index: String): String = {
-    val elementType = elementVar.dataType
-    val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
-    val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
-    assignAtomic(elementAtomic, extractElement, s"$arrayName.isNullAt($index)",
-      elementVar.nullable)
+  protected def assignVar(varCode: ExprCode, value: String, isNull: String,
+      nullable: Boolean): String = {
+    if (nullable) {
+      s"""
+        ${varCode.value} = $value;
+        ${varCode.isNull} = $isNull;
+      """
+    } else {
+      s"""
+        ${varCode.value} = $value;
+      """
+    }
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    nullSafeCodeGen(ctx, ev, arg => {
-      val numElements = ctx.freshName("numElements")
-      val i = ctx.freshName("i")
+    ctx.withLambdaVars(Seq(elementVar, accForMergeVar, accForFinishVar), { varCodes =>
+      val Seq(elementCode, accForMergeCode, accForFinishCode) = varCodes
 
-      val zeroCode = zero.genCode(ctx)
-      val mergeCode = merge.genCode(ctx)
-      val finishCode = finish.genCode(ctx)
+      nullSafeCodeGen(ctx, ev, arg => {
+        val numElements = ctx.freshName("numElements")
+        val i = ctx.freshName("i")
 
-      val elementAssignment = assignElement(ctx, arg, elementVar, i)
-      val mergeAtomic = ctx.addReferenceObj(accForMergeVar.variableName,
-        accForMergeVar.value)
-      val finishAtomic = ctx.addReferenceObj(accForFinishVar.variableName,
-        accForFinishVar.value)
+        val zeroCode = zero.genCode(ctx)
+        val mergeCode = merge.genCode(ctx)
+        val finishCode = finish.genCode(ctx)
 
-      val mergeJavaType = CodeGenerator.javaType(accForMergeVar.dataType)
-      val finishJavaType = CodeGenerator.javaType(accForFinishVar.dataType)
+        val elementAssignment = assignArrayElement(ctx, arg, elementCode, elementVar, i)
+        val mergeAtomic = ctx.addReferenceObj(accForMergeVar.variableName,
+          accForMergeVar.value)
+        val finishAtomic = ctx.addReferenceObj(accForFinishVar.variableName,
+          accForFinishVar.value)
 
-      // Some expressions return internal buffers that we have to copy
-      val mergeCopy = if (isPrimitive(merge.dataType)) {
-        s"${mergeCode.value}"
-      } else {
-        s"($mergeJavaType)InternalRow.copyValue(${mergeCode.value})"
-      }
+        val mergeJavaType = CodeGenerator.javaType(accForMergeVar.dataType)
+        val finishJavaType = CodeGenerator.javaType(accForFinishVar.dataType)
 
-      val nullCheck = if (nullable) {
-        s"${ev.isNull} = ${finishCode.isNull};"
-      } else {
-        ""
-      }
+        // Some expressions return internal buffers that we have to copy
+        val mergeCopy = if (isPrimitive(merge.dataType)) {
+          s"${mergeCode.value}"
+        } else {
+          s"($mergeJavaType)InternalRow.copyValue(${mergeCode.value})"
+        }
 
-      s"""
-          |final int $numElements = ${arg}.numElements();
-          |${zeroCode.code}
-          |${assignAtomic(mergeAtomic, zeroCode.value, zeroCode.isNull, merge.nullable)}
-          |
-          |for (int $i = 0; $i < $numElements; $i++) {
-          |  $elementAssignment
-          |  ${mergeCode.code}
-          |  ${assignAtomic(mergeAtomic, mergeCopy, mergeCode.isNull, merge.nullable)}
-          |}
-          |
-          |${assignAtomic(finishAtomic, s"$mergeAtomic.get()")}
-          |${finishCode.code}
-          |${ev.value} = ${finishCode.value};
-          |$nullCheck
-        """.stripMargin
+        val nullCheck = if (nullable) {
+          s"${ev.isNull} = ${finishCode.isNull};"
+        } else {
+          ""
+        }
+
+        val initialAssignment = assignVar(accForMergeCode, zeroCode.value, zeroCode.isNull,
+          zero.nullable)
+        val initialAtomic = assignAtomic(mergeAtomic, accForMergeCode.value,
+          accForMergeCode.isNull, merge.nullable)
+
+        val mergeAssignment = assignVar(accForMergeCode, mergeCode.value,
+          mergeCode.isNull, merge.nullable)
+        val mergeAtomicAssignment = assignAtomic(mergeAtomic, accForMergeCode.value,
+          accForMergeCode.isNull, merge.nullable)
+
+        val finishAssignment = assignVar(accForFinishCode, accForMergeCode.value,
+          accForMergeCode.isNull, merge.nullable)
+        val finishAtomicAssignment = assignAtomic(finishAtomic, accForFinishCode.value,
+          accForFinishCode.isNull, merge.nullable)
+
+        s"""
+            |final int $numElements = ${arg}.numElements();
+            |${zeroCode.code}
+            |$initialAssignment
+            |$initialAtomic
+            |
+            |for (int $i = 0; $i < $numElements; $i++) {
+            |  $elementAssignment
+            |  ${mergeCode.code}
+            |  $mergeAssignment
+            |  $mergeAtomicAssignment
+            |}
+            |
+            |$finishAssignment
+            |$finishAtomicAssignment
+            |${finishCode.code}
+            |${ev.value} = ${finishCode.value};
+            |$nullCheck
+          """.stripMargin
+      })
     })
   }
 
