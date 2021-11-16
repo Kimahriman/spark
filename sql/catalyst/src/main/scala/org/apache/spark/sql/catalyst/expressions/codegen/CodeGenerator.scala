@@ -465,6 +465,9 @@ class CodegenContext extends Logging {
   // The collection of sub-expression result resetting methods that need to be called on each row.
   private val subexprFunctions = mutable.ArrayBuffer.empty[String]
 
+  // Input values that need to be evaluated before subexpressions are evaluated
+  val localVarInputs = mutable.ArrayBuffer.empty[ExprCode]
+
   val outerClassName = "OuterClass"
 
   /**
@@ -1056,8 +1059,10 @@ class CodegenContext extends Logging {
    */
   def subexprFunctionsCode: String = {
     // Whole-stage codegen's subexpression elimination is handled in another code path
-    assert(currentVars == null || subexprFunctions.isEmpty)
-    splitExpressions(subexprFunctions.toSeq, "subexprFunc_split", Seq("InternalRow" -> INPUT_ROW))
+    // assert(currentVars == null || subexprFunctions.isEmpty)
+    // splitExpressions(subexprFunctions.toSeq, "subexprFunc_split",
+    // Seq("InternalRow" -> INPUT_ROW))
+    evaluateSubExprEliminationState(subExprEliminationExprs.values)
   }
 
   /**
@@ -1173,6 +1178,7 @@ class CodegenContext extends Logging {
     }.unzip
 
     val needSplit = nonSplitCode.map(_.eval.code.length).sum > SQLConf.get.methodSplitThreshold
+    // val needSplit = true
     val (subExprsMap, exprCodes) = if (needSplit) {
       if (inputVarsForAllFuncs.map(calculateParamLengthFromExprValues).forall(isValidParamLength)) {
         val localSubExprEliminationExprs =
@@ -1225,6 +1231,7 @@ class CodegenContext extends Logging {
             ExprCode(code, isNull, JavaCode.global(value, expr.dataType)),
             childrenSubExprs.toSeq)
           localSubExprEliminationExprs.put(ExpressionEquals(expr), state)
+          subexprFunctions += state.eval.code.toString
         }
         (localSubExprEliminationExprs, exprCodesNeedEvaluate)
       } else {
@@ -1236,8 +1243,11 @@ class CodegenContext extends Logging {
         }
       }
     } else {
+      // subexprFunctions += localSubExprEliminationExprsForNonSplit
       (localSubExprEliminationExprsForNonSplit, Seq.empty)
     }
+    subExprsMap.foreach(subExprEliminationExprs += _)
+    exprCodes.flatten.foreach(localVarInputs += _)
     SubExprCodes(subExprsMap.toMap, exprCodes.flatten)
   }
 
@@ -1301,8 +1311,8 @@ class CodegenContext extends Logging {
   def generateExpressions(
       expressions: Seq[Expression],
       doSubexpressionElimination: Boolean = false): Seq[ExprCode] = {
-    if (doSubexpressionElimination) subexpressionElimination(expressions)
-    expressions.map(e => e.genCode(this))
+    if (doSubexpressionElimination) subexpressionEliminationForWholeStageCodegen(expressions)
+    expressions.map(_.genCode(this))
   }
 
   /**

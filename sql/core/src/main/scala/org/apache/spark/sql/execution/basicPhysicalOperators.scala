@@ -66,23 +66,25 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
 
   override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
     val exprs = bindReferences[Expression](projectList, child.output)
-    val (subExprsCode, resultVars, localValInputs) = if (conf.subexpressionEliminationEnabled) {
-      // subexpression elimination
-      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprs)
-      val genVars = ctx.withSubExprEliminationExprs(subExprs.states) {
-        exprs.map(_.genCode(ctx))
-      }
-      (ctx.evaluateSubExprEliminationState(subExprs.states.values), genVars,
-        subExprs.exprCodesNeedEvaluate)
-    } else {
-      ("", exprs.map(_.genCode(ctx)), Seq.empty)
+    if (conf.subexpressionEliminationEnabled) {
+      ctx.subexpressionEliminationForWholeStageCodegen(exprs)
     }
+    val resultVars = exprs.map(_.genCode(ctx))
+    val subExprsCode = ctx.subexprFunctionsCode
+    //   val genVars = ctx.withSubExprEliminationExprs(subExprs.states) {
+    //     exprs.map(_.genCode(ctx))
+    //   }
+    //   (ctx.evaluateSubExprEliminationState(subExprs.states.values), genVars,
+    //     subExprs.exprCodesNeedEvaluate)
+    // } else {
+    //   ("", exprs.map(_.genCode(ctx)), Seq.empty)
+    // }
 
     // Evaluation of non-deterministic expressions can't be deferred.
     val nonDeterministicAttrs = projectList.filterNot(_.deterministic).map(_.toAttribute)
     s"""
        |// common sub-expressions
-       |${evaluateVariables(localValInputs)}
+       |${evaluateVariables(ctx.localVarInputs)}
        |$subExprsCode
        |${evaluateRequiredVariables(output, resultVars, AttributeSet(nonDeterministicAttrs))}
        |${consume(ctx, resultVars)}
