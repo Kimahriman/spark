@@ -279,11 +279,8 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
         ExprCode(TrueLiteral, oneVar),
         ExprCode(TrueLiteral, twoVar))
 
-      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprs)
-      ctx.withSubExprEliminationExprs(subExprs.states) {
-        exprs.map(_.genCode(ctx))
-      }
-      val subExprsCode = ctx.evaluateSubExprEliminationState(subExprs.states.values)
+      ctx.subexpressionElimination(exprs)
+      val subExprsCode = ctx.subexprFunctionsCode
 
       val codeBody = s"""
         public java.lang.Object generate(Object[] references) {
@@ -447,7 +444,7 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
 
     val exprs = Seq(add1, add1, add2, add2)
     val ctx = new CodegenContext()
-    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprs)
+    val subExprs = ctx.subexpressionElimination(exprs)
 
     val add2State = subExprs.states(ExpressionEquals(add2))
     val add1State = subExprs.states(ExpressionEquals(add1))
@@ -481,13 +478,10 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     val p = PromotePrecision(Literal(Decimal("10.1")))
 
     val ctx = new CodegenContext()
-    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(Seq(p, p))
-    val code = ctx.withSubExprEliminationExprs(subExprs.states) {
-      Seq(p.genCode(ctx))
-    }.head
-    // Decimal `Literal` will add the value by `addReferenceObj`.
-    // So if `p` is replaced by subexpression, the literal will be reused.
-    assert(code.value.toString == "((Decimal) references[0] /* literal */)")
+    val subExprs = ctx.subexpressionElimination(Seq(p, p))
+    val code = p.genCode(ctx)
+    // If `p` is replaced by subexpression, mutable state will be reused.
+    assert(code.value.toString == "mutableStateArray_0[0]")
   }
 
   test("SPARK-39040: Respect NaNvl in EquivalentExpressions for expression elimination") {
