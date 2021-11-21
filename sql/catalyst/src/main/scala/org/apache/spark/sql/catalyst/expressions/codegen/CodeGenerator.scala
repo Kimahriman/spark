@@ -1058,11 +1058,13 @@ class CodegenContext extends Logging {
    * Returns the code for subexpression elimination after splitting it if necessary.
    */
   def subexprFunctionsCode: String = {
-    // Whole-stage codegen's subexpression elimination is handled in another code path
-    // assert(currentVars == null || subexprFunctions.isEmpty)
-    // splitExpressions(subexprFunctions.toSeq, "subexprFunc_split",
-    // Seq("InternalRow" -> INPUT_ROW))
-    evaluateSubExprEliminationState(subExprEliminationExprs.values)
+    val subExprCode = evaluateSubExprEliminationState(subExprEliminationExprs.values)
+    if (currentVars == null) {
+      // Only split for non-whole stage codegen
+      splitExpressions(subExprCode, "subexprFunc_split", Seq("InternalRow" -> INPUT_ROW))
+    } else {
+      subExprCode.mkString("\n")
+    }
   }
 
   /**
@@ -1087,16 +1089,20 @@ class CodegenContext extends Logging {
    * evaluating a subexpression, this method will clean up the code block to avoid duplicate
    * evaluation.
    */
-  def evaluateSubExprEliminationState(subExprStates: Iterable[SubExprEliminationState]): String = {
-    val code = new StringBuilder()
+  def evaluateSubExprEliminationState(
+      subExprStates: Iterable[SubExprEliminationState]): Seq[String] = {
+    // val code = new StringBuilder()
 
-    subExprStates.foreach { state =>
-      val currentCode = evaluateSubExprEliminationState(state.children) + "\n" + state.eval.code
-      code.append(currentCode + "\n")
+    subExprStates.flatMap { state =>
+      // val currentCode = evaluateSubExprEliminationState(state.children) + "\n" + state.eval.code
+      // code.append(currentCode + "\n")
+
+      val currentCode = evaluateSubExprEliminationState(state.children) :+ state.eval.code.toString
       state.eval.code = EmptyBlock
-    }
+      currentCode
+    }.toSeq
 
-    code.toString()
+    // code.toString()
   }
 
   /**

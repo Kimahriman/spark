@@ -84,7 +84,7 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
     val nonDeterministicAttrs = projectList.filterNot(_.deterministic).map(_.toAttribute)
     s"""
        |// common sub-expressions
-       |${evaluateVariables(ctx.localVarInputs)}
+       |${evaluateVariables(ctx.localVarInputs.toSeq)}
        |$subExprsCode
        |${evaluateRequiredVariables(output, resultVars, AttributeSet(nonDeterministicAttrs))}
        |${consume(ctx, resultVars)}

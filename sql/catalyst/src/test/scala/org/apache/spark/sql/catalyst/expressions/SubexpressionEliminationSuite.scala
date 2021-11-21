@@ -427,7 +427,6 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     val code = ctx.withSubExprEliminationExprs(subExprs.states) {
       Seq(p.genCode(ctx))
     }.head
-    println(code)
     // Decimal `Literal` will add the value by `addReferenceObj`.
     // So if `p` is replaced by subexpression, the literal will be reused.
     assert(code.value.toString == "mutableStateArray_0[0]")
