@@ -273,7 +273,7 @@ trait HigherOrderFunction extends Expression with ExpectsInputTypes {
     val elementAtomic = ctx.addReferenceObj(elementVar.variableName, elementVar.value)
     val extractElement = CodeGenerator.getValue(arrayName, elementType, index)
     val atomicAssign = assignAtomic(elementAtomic, elementCode.value,
-      s"$arrayName.isNullAt($index)", elementVar.nullable)
+      elementCode.isNull, elementVar.nullable)
 
     if (elementVar.nullable) {
       s"""

@@ -122,7 +122,7 @@ class EquivalentExpressions {
    *                 conditionally evaluated.
    */
   private def childrenToRecurse(expr: Expression): RecurseChildren = expr match {
-    case _: CodegenFallback | _: LambdaFunction => RecurseChildren(Nil)
+    case _: CodegenFallback => RecurseChildren(Nil)
     case i: If =>
       val values = Seq(i.trueValue, i.falseValue)
       RecurseChildren(Seq(i.predicate), values, values)
@@ -130,6 +130,7 @@ class EquivalentExpressions {
       val values = if (c.elseValue.isDefined) c.branches.map(_._2) ++ c.elseValue else Nil
       RecurseChildren(Seq(c.children.head), values, c.children.tail)
     case c: Coalesce => RecurseChildren(Seq(c.children.head), Nil, c.children.tail)
+    case h: HigherOrderFunction => RecurseChildren(h.arguments)
     case other => RecurseChildren(other.children)
   }
 
