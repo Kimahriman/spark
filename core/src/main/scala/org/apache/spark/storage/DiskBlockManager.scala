@@ -18,6 +18,7 @@
 package org.apache.spark.storage
 
 import java.io.{File, IOException}
+import java.nio.file.Files
 import java.util.UUID
 
 import scala.collection.mutable.HashMap
@@ -93,9 +94,7 @@ private[spark] class DiskBlockManager(
       } else {
         val newDir = new File(localDirs(dirId), "%02x".format(subDirId))
         if (!newDir.exists()) {
-          // SPARK-37618: Create dir as group writable so files within can be deleted by the
-          // shuffle service
-          createDirWithPermission770(newDir)
+          Files.createDirectory(newDir.toPath)
         }
         subDirs(dirId)(subDirId) = newDir
         newDir
@@ -194,6 +193,7 @@ private[spark] class DiskBlockManager(
     Utils.getConfiguredLocalDirs(conf).flatMap { rootDir =>
       try {
         val localDir = Utils.createDirectory(rootDir, "blockmgr")
+        addGroupWriteAcl(localDir)
         logInfo(s"Created local directory at $localDir")
         Some(localDir)
       } catch {
@@ -245,13 +245,9 @@ private[spark] class DiskBlockManager(
    * Create a directory that is writable by the group.
    * Grant the permission 770 "rwxrwx---" to the directory so the shuffle server can
    * create subdirs/files within the merge folder.
-   * We can't use java.nio.files.Files.setPosixPermissions because Java doesn't support
-   * maintaining or adding the setgid bit when assigning permissions. The Hadoop
-   * RawLocalFileSystem also doesn't support this. Yarn uses this
-   * mechanism to make sure all subdirectories and files are assigned the group of
-   * the container executor.
-   *
-   * See https://bugs.openjdk.java.net/browse/JDK-8137404
+   *  TODO: Find out why can't we create a dir using java api with permission 770
+   *  Files.createDirectories(mergeDir.toPath, PosixFilePermissions.asFileAttribute(
+   *  PosixFilePermissions.fromString("rwxrwx---")))
    */
   def createDirWithPermission770(dirToCreate: File): Unit = {
     var attempts = 0
@@ -279,6 +275,27 @@ private[spark] class DiskBlockManager(
             s"with permission 770", e)
           created = null;
       }
+    }
+  }
+
+  /**
+   * Attempt to add a default gropu write ACL to the directory. This is used to allow
+   * the external shuffle service to have write access to block directories to cleanup
+   * shuffle data in secure environments after the executor has been deallocated. This
+   * is necessary because setting the group write permission directly on the sub dirs
+   * removes the setgid bit, which prevents the shuffle service from being able to read
+   * shuffle files in a secure Yarn environment.
+   */
+  def addGroupWriteAcl(dirToModify: File): Unit = {
+    try {
+      val builder = new ProcessBuilder().command(
+        "setfacl", "-d", "-m", "g::rwx", dirToModify.getAbsolutePath)
+      val proc = builder.start()
+      val exitCode = proc.waitFor()
+    } catch {
+      case e: Exception =>
+        logDebug(s"Failed to add group write ACL to directory" +
+          s"${dirToModify.getAbsolutePath}", e)
     }
   }
 
