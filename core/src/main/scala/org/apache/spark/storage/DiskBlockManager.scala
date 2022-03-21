@@ -78,8 +78,12 @@ private[spark] class DiskBlockManager(
 
   private val shutdownHook = addShutdownHook()
 
-  private val shuffleServiceRemoveShuffleEnabled = conf.get(config.SHUFFLE_SERVICE_ENABLED) &&
-    conf.get(config.SHUFFLE_SERVICE_REMOVE_SHUFFLE_ENABLED)
+  // If either of these features are enabled, we must change permissions on block manager
+  // directories and files to accomodate the shuffle service deleting files in a secure environment
+  private val permissionChangingRequired = conf.get(config.SHUFFLE_SERVICE_ENABLED) && (
+    conf.get(config.SHUFFLE_SERVICE_REMOVE_SHUFFLE_ENABLED) ||
+    conf.get(config.SHUFFLE_SERVICE_FETCH_RDD_ENABLED)
+  )
 
   /** Looks up a file by hashing it into one of our local subdirectories. */
   // This method should be kept in sync with
@@ -100,7 +104,7 @@ private[spark] class DiskBlockManager(
         if (!newDir.exists()) {
           val path = newDir.toPath
           Files.createDirectory(path)
-          if (shuffleServiceRemoveShuffleEnabled) {
+          if (permissionChangingRequired) {
             // SPARK-37618: Create dir as group writable so files within can be deleted by the
             // shuffle service in a secure setup. This will remove the setgid bit so files created
             // within won't be created with the parent folder group.
@@ -187,12 +191,14 @@ private[spark] class DiskBlockManager(
    * world executable, so this doesn't allow access to these files except for the
    * running user and shuffle service.
    */
-  def createWorldReadableFile(file: File): Unit = {
-    val path = file.toPath
-    Files.createFile(path)
-    val currentPerms = Files.getPosixFilePermissions(path)
-    currentPerms.add(PosixFilePermission.OTHERS_READ)
-    Files.setPosixFilePermissions(path, currentPerms)
+  def createWorldReadableFileIfRequired(file: File): Unit = {
+    if (permissionChangingRequired) {
+      val path = file.toPath
+      Files.createFile(path)
+      val currentPerms = Files.getPosixFilePermissions(path)
+      currentPerms.add(PosixFilePermission.OTHERS_READ)
+      Files.setPosixFilePermissions(path, currentPerms)
+    }
   }
 
   /**
@@ -201,12 +207,7 @@ private[spark] class DiskBlockManager(
    */
   def createTempFileWith(file: File): File = {
     val tmpFile = Utils.tempFileWith(file)
-    if (shuffleServiceRemoveShuffleEnabled) {
-      // SPARK-37618: we need to make the file world readable because the parent will
-      // lose the setgid bit when making it group writable. Without this the shuffle
-      // service can't read the shuffle files in a secure setup.
-      createWorldReadableFile(tmpFile)
-    }
+    createWorldReadableFileIfRequired(tmpFile)
     tmpFile
   }
 
@@ -226,12 +227,7 @@ private[spark] class DiskBlockManager(
       blockId = new TempShuffleBlockId(UUID.randomUUID())
     }
     val tmpFile = getFile(blockId)
-    if (shuffleServiceRemoveShuffleEnabled) {
-      // SPARK-37618: we need to make the file world readable because the parent will
-      // lose the setgid bit when making it group writable. Without this the shuffle
-      // service can't read the shuffle files in a secure setup.
-      createWorldReadableFile(tmpFile)
-    }
+    createWorldReadableFileIfRequired(tmpFile)
     (blockId, tmpFile)
   }
 

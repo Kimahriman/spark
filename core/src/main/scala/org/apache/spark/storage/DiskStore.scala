@@ -71,6 +71,9 @@ private[spark] class DiskStore(
     logDebug(s"Attempting to put block $blockId")
     val startTimeNs = System.nanoTime()
     val file = diskManager.getFile(blockId)
+
+    // SPARK-37618: See method comments for why this is necessary
+    diskManager.createWorldReadableFileIfRequired(file)
     val out = new CountingWritableChannel(openForWrite(file))
     var threwException: Boolean = true
     try {
