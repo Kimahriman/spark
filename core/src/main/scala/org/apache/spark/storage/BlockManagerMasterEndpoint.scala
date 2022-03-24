@@ -793,9 +793,11 @@ private[spark] class BlockStatusPerBlockId {
   }
 
   def remove(blockId: BlockId): Unit = {
-    blocks.remove(blockId)
-    if (blocks.isEmpty) {
-      blocks = null
+    if (blocks != null) {
+      blocks.remove(blockId)
+      if (blocks.isEmpty) {
+        blocks = null
+      }
     }
   }
 
@@ -892,8 +894,8 @@ private[spark] class BlockManagerInfo(
     } else if (blockExists) {
       // If isValid is not true, drop the block.
       _blocks.remove(blockId)
-      externalShuffleServiceBlockStatus.foreach { blockStatus =>
-        blockStatus.remove(blockId)
+      externalShuffleServiceBlockStatus.foreach { shuffleServiceBlocks =>
+        shuffleServiceBlocks.remove(blockId)
       }
       if (originalLevel.useMemory) {
         logInfo(s"Removed $blockId on ${blockManagerId.hostPort} in memory" +
@@ -911,8 +913,8 @@ private[spark] class BlockManagerInfo(
     if (_blocks.containsKey(blockId)) {
       _remainingMem += _blocks.get(blockId).memSize
       _blocks.remove(blockId)
-      externalShuffleServiceBlockStatus.foreach { blockStatus =>
-        blockStatus.remove(blockId)
+      externalShuffleServiceBlockStatus.foreach { shuffleServiceBlocks =>
+        shuffleServiceBlocks.remove(blockId)
       }
     }
   }
