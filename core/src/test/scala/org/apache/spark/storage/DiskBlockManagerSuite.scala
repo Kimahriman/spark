@@ -19,7 +19,7 @@ package org.apache.spark.storage
 
 import java.io.{File, FileWriter}
 import java.nio.file.{Files, Paths}
-import java.nio.file.attribute.PosixFilePermissions
+import java.nio.file.attribute.{PosixFilePermission, PosixFilePermissions}
 import java.util.HashMap
 
 import com.fasterxml.jackson.core.`type`.TypeReference
