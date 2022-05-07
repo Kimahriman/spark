@@ -168,6 +168,7 @@ class EquivalentExpressions(
     case c: ConditionalExpression =>
       RecurseChildren(c.alwaysEvaluatedInputs.map(skipForShortcut), c.branchGroups,
         c.conditionallyEvaluatedInputs)
+    case h: HigherOrderFunction => RecurseChildren(h.arguments)
     case other => RecurseChildren(skipForShortcut(other).children)
   }
 
