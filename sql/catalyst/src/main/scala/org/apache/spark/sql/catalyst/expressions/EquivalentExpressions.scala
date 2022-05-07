@@ -151,6 +151,7 @@ class EquivalentExpressions {
     case _: CodegenFallback => RecurseChildren(Nil)
     case c: ConditionalExpression => RecurseChildren(c.alwaysEvaluatedInputs, c.branchGroups,
       c.conditionallyEvaluatedInputs)
+    case h: HigherOrderFunction => RecurseChildren(h.arguments)
     case other => RecurseChildren(other.children)
   }
 
