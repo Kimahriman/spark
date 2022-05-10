@@ -150,12 +150,6 @@ class ExternalShuffleServiceSuite extends ShuffleSuite with BeforeAndAfterAll wi
       filesToCheck.foreach(f => {
         val parentPerms = Files.getPosixFilePermissions(f.getParentFile.toPath)
         assert(parentPerms.contains(PosixFilePermission.GROUP_WRITE))
-
-        // On most operating systems the default umask will make this test pass
-        // even if the permission isn't changed. To properly test this, run the
-        // test with a umask of 0027
-        val perms = Files.getPosixFilePermissions(f.toPath)
-        assert(perms.contains(PosixFilePermission.OTHERS_READ))
       })
 
       sc.killExecutors(sc.getExecutorIds())
@@ -228,12 +222,6 @@ class ExternalShuffleServiceSuite extends ShuffleSuite with BeforeAndAfterAll wi
           filesToCheck.foreach(f => {
             val parentPerms = Files.getPosixFilePermissions(f.getParentFile.toPath)
             assert(parentPerms.contains(PosixFilePermission.GROUP_WRITE))
-
-            // On most operating systems the default umask will make this test pass
-            // even if the permission isn't changed. To properly test this, run the
-            // test with a umask of 0027
-            val perms = Files.getPosixFilePermissions(f.toPath)
-            assert(perms.contains(PosixFilePermission.OTHERS_READ))
           })
         }
 

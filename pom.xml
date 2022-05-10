@@ -461,7 +461,6 @@
         <groupId>com.github.jnr</groupId>
         <artifactId>jnr-posix</artifactId>
         <version>3.1.15</version>
-        <scope>test</scope>
       </dependency>
       <!-- This artifact is a shaded version of ASM 9.x. The POM that was used to produce this
            is at https://github.com/apache/geronimo-xbean/tree/trunk/xbean-asm9-shaded

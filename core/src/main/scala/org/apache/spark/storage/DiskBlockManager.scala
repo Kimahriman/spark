@@ -19,13 +19,13 @@ package org.apache.spark.storage
 
 import java.io.{File, IOException}
 import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermission
 import java.util.UUID
 
 import scala.collection.mutable.HashMap
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import jnr.posix.{POSIX, POSIXFactory}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.errors.SparkCoreErrors
@@ -87,6 +87,8 @@ private[spark] class DiskBlockManager(
     conf.get(config.SHUFFLE_SERVICE_FETCH_RDD_ENABLED)
   )
 
+  private val posix: POSIX = POSIXFactory.getPOSIX
+
   /** Looks up a file by hashing it into one of our local subdirectories. */
   // This method should be kept in sync with
   // org.apache.spark.network.shuffle.ExecutorDiskUtils#getFilePath().
@@ -105,14 +107,16 @@ private[spark] class DiskBlockManager(
         val newDir = new File(localDirs(dirId), "%02x".format(subDirId))
         if (!newDir.exists()) {
           val path = newDir.toPath
-          Files.createDirectory(path)
           if (permissionChangingRequired) {
             // SPARK-37618: Create dir as group writable so files within can be deleted by the
-            // shuffle service in a secure setup. This will remove the setgid bit so files created
-            // within won't be created with the parent folder group.
-            val currentPerms = Files.getPosixFilePermissions(path)
-            currentPerms.add(PosixFilePermission.GROUP_WRITE)
-            Files.setPosixFilePermissions(path, currentPerms)
+            // shuffle service in a secure setup. We use setting the umask to do this so that we
+            // maintain the setgid bit in secure Yarn environments. Changing the group write
+            // permissions of a directory would remove the setgid bit.
+            withPermissiveUmask("0007") {
+              Files.createDirectory(path)
+            }
+          } else {
+            Files.createDirectory(path)
           }
         }
         subDirs(dirId)(subDirId) = newDir
@@ -185,37 +189,6 @@ private[spark] class DiskBlockManager(
     }
   }
 
-  /**
-   * SPARK-37618: Makes sure that the file is created as world readable. This is to get
-   * around the fact that making the block manager sub dirs group writable removes
-   * the setgid bit in secure Yarn environments, which prevents the shuffle service
-   * from being able to read shuffle files. The outer directories will still not be
-   * world executable, so this doesn't allow access to these files except for the
-   * running user and shuffle service.
-   */
-  def createWorldReadableFile(file: File): Unit = {
-    val path = file.toPath
-    Files.createFile(path)
-    val currentPerms = Files.getPosixFilePermissions(path)
-    currentPerms.add(PosixFilePermission.OTHERS_READ)
-    Files.setPosixFilePermissions(path, currentPerms)
-  }
-
-  /**
-   * Creates a temporary version of the given file with world readable permissions (if required).
-   * Used to create block files that will be renamed to the final version of the file.
-   */
-  def createTempFileWith(file: File): File = {
-    val tmpFile = Utils.tempFileWith(file)
-    if (permissionChangingRequired) {
-      // SPARK-37618: we need to make the file world readable because the parent will
-      // lose the setgid bit when making it group writable. Without this the shuffle
-      // service can't read the shuffle files in a secure setup.
-      createWorldReadableFile(tmpFile)
-    }
-    tmpFile
-  }
-
   /** Produces a unique block id and File suitable for storing local intermediate results. */
   def createTempLocalBlock(): (TempLocalBlockId, File) = {
     var blockId = new TempLocalBlockId(UUID.randomUUID())
@@ -231,14 +204,7 @@ private[spark] class DiskBlockManager(
     while (getFile(blockId).exists()) {
       blockId = new TempShuffleBlockId(UUID.randomUUID())
     }
-    val tmpFile = getFile(blockId)
-    if (permissionChangingRequired) {
-      // SPARK-37618: we need to make the file world readable because the parent will
-      // lose the setgid bit when making it group writable. Without this the shuffle
-      // service can't read the shuffle files in a secure setup.
-      createWorldReadableFile(tmpFile)
-    }
-    (blockId, tmpFile)
+    (blockId, getFile(blockId))
   }
 
   /**
@@ -331,6 +297,26 @@ private[spark] class DiskBlockManager(
             s"with permission 770", e)
           created = null;
       }
+    }
+  }
+
+  /**
+   * Set the umask to the current umask binary AND'd with the given mask. This will maintain
+   * the bits of the umask we don't care about, and only force the bits we do care about to be 0.
+   */
+  private def withPermissiveUmask(mask: String)(f: => Unit) = {
+    if (posix.isNative) {
+      val parsedMask = BigInt(mask, 8).toInt
+      // No way to get the current mask without also setting it, so just set it to 0
+      val currentMask = posix.umask(0)
+      posix.umask(currentMask & parsedMask)
+      try {
+        f
+      } finally {
+        posix.umask(currentMask)
+      }
+    } else {
+      f
     }
   }
 
