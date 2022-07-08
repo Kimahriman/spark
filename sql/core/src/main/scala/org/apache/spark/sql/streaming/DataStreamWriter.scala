@@ -37,7 +37,7 @@ import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.DataSource
-import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Utils, FileDataSourceV2}
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.sources._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -369,9 +369,7 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
       val cls = DataSource.lookupDataSource(source, df.sparkSession.sessionState.conf)
       val disabledSources =
         Utils.stringToSeq(df.sparkSession.sqlContext.conf.disabledV2StreamingWriters)
-      val useV1Source = disabledSources.contains(cls.getCanonicalName) ||
-        // file source v2 does not support streaming yet.
-        classOf[FileDataSourceV2].isAssignableFrom(cls)
+      val useV1Source = disabledSources.contains(cls.getCanonicalName)
 
       val optionsWithPath = if (path.isEmpty) {
         extraOptions

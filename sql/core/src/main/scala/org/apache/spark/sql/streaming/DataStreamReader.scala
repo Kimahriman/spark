@@ -33,7 +33,7 @@ import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.DataSource
-import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Utils, FileDataSourceV2}
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils
 import org.apache.spark.sql.execution.streaming.StreamingRelation
 import org.apache.spark.sql.sources.StreamSourceProvider
 import org.apache.spark.sql.types.StructType
@@ -170,7 +170,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
     }
     ds match {
       // file source v2 does not support streaming yet.
-      case provider: TableProvider if !provider.isInstanceOf[FileDataSourceV2] =>
+      case provider: TableProvider =>
         val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
           source = provider, conf = sparkSession.sessionState.conf)
         val finalOptions = sessionOptions.filterKeys(!optionsWithPath.contains(_)).toMap ++
