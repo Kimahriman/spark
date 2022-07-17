@@ -137,8 +137,8 @@ class ExternalShuffleServiceSuite extends ShuffleSuite with BeforeAndAfterAll wi
           val promise = Promise[File]()
           dirManager.getHostLocalDirs(bmid.host, bmid.port, Seq(bmid.executorId).toArray) {
             case scala.util.Success(res) => res.foreach { case (eid, dirs) =>
-              val file = ExecutorDiskUtils.getFile(dirs,
-                sc.env.blockManager.subDirsPerLocalDir, blockId.name)
+              val file = new File(ExecutorDiskUtils.getFilePath(dirs,
+                sc.env.blockManager.subDirsPerLocalDir, blockId.name))
               promise.success(file)
             }
             case scala.util.Failure(error) => promise.failure(error)
@@ -210,8 +210,8 @@ class ExternalShuffleServiceSuite extends ShuffleSuite with BeforeAndAfterAll wi
                   ShuffleIndexBlockId(shuffleBlockId.shuffleId, shuffleBlockId.mapId,
                     shuffleBlockId.reduceId).name
                 ).map { blockId =>
-                  ExecutorDiskUtils.getFile(dirs,
-                    sc.env.blockManager.subDirsPerLocalDir, blockId)
+                  new File(ExecutorDiskUtils.getFilePath(dirs,
+                    sc.env.blockManager.subDirsPerLocalDir, blockId))
                 }
               }
               promise.success(files)
