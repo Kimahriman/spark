@@ -423,6 +423,22 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     }
   }
 
+  test("SPARK-35564: Common expressions don't infinite loop with conditional expressions") {
+    withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
+      val add1 = Add(Literal(1), Literal(2))
+      val add2 = Add(Literal(2), Literal(3))
+
+      val inner = CaseWhen((GreaterThan(add2, Literal(2)), add1) :: Nil)
+      val outer = CaseWhen((GreaterThan(add1, Literal(2)), inner) :: Nil, add1)
+
+      val equivalence = new EquivalentExpressions
+      equivalence.addExprTree(outer)
+
+      // `add1` is evaluated in the outer condition, and optionally in the inner value
+      assert(equivalence.getCommonSubexpressions.size == 1)
+    }
+  }
+
   test("SPARK-35564: Don't double count conditional expressions if present in all branches") {
     withSQLConf(SQLConf.SUBEXPRESSION_ELIMINATION_CONDITIONALS_ENABLED.key -> "true") {
       val add1 = Add(Literal(1), Literal(2))

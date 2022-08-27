@@ -125,6 +125,10 @@ class EquivalentExpressions {
       }
     }
 
+    // Filter out any expressions that are only conditional evaluated. We won't
+    // consider these for common expressions
+    localEquivalenceMap = localEquivalenceMap.filter(_._2.useCount > 0)
+
     val commonExpressions = mutable.ListBuffer.empty[ExpressionEquals]
 
     // Start with the highest expression, remove it from `localEquivalenceMap` and add it to `map`.
