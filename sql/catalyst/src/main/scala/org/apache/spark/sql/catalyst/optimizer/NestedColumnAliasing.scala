@@ -214,6 +214,7 @@ object NestedColumnAliasing {
     case _: Join => true
     case _: Window => true
     case _: Sort => true
+    case _: CollectMetrics => true
     case _ => false
   }
 

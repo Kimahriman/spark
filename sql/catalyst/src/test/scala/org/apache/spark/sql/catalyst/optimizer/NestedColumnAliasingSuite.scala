@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedExtract
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.Cross
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
@@ -454,6 +455,43 @@ class NestedColumnAliasingSuite extends SchemaPruningTest {
       .analyze
     val optimized3 = Optimize.execute(query3)
     comparePlans(optimized3, query3)
+  }
+
+  test("Nested field pruning through CollectMetrics") {
+    // Test a metric that doesn't include any fields
+    val query1 = CollectMetrics("metrics", Seq(Alias(Count(Literal(1)), "count")()), contact)
+      .select($"name.middle")
+      .analyze
+    val optimized1 = Optimize.execute(query1)
+
+    val aliases1 = collectGeneratedAliases(optimized1)
+
+    val expected1 = CollectMetrics("metrics", Seq(Alias(Count(Literal(1)), "count")()),
+        contact.select($"name".getField("middle").as(aliases1(0))))
+      .select($"${aliases1(0)}".as("middle"))
+      .analyze
+    comparePlans(optimized1, expected1)
+
+    def max(e: Expression): NamedExpression = {
+      Alias(Max(e).toAggregateExpression(), "last")()
+    }
+
+    // Test a metric that use a field not selected later
+    val query2 = CollectMetrics("metrics", Seq(max($"name".getField("last"))), contact)
+      .select($"name.middle")
+      .analyze
+    val optimized2 = Optimize.execute(query2)
+
+    val aliases2 = collectGeneratedAliases(optimized2)
+
+    val initialContact = contact.select(
+      $"name".getField("middle").as(aliases2(0)),
+      $"name".getField("last").as(aliases2(1)))
+
+    val expected2 = CollectMetrics("metrics", Seq(max($"${aliases2(1)}")), initialContact)
+      .select($"${aliases2(0)}".as("middle"))
+      .analyze
+    comparePlans(optimized2, expected2)
   }
 
   test("Nested field pruning for Aggregate") {
