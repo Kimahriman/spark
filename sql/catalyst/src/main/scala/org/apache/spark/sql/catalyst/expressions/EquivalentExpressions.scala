@@ -141,6 +141,8 @@ class EquivalentExpressions {
       updateExprTree(stats.expr, map, useCount)
       commonExpressions += ExpressionEquals(stats.expr)
 
+      // Filter out any conditional-only expressions that were added while updating the tree
+      localEquivalenceMap = localEquivalenceMap.filter(_._2.useCount > 0)
       statsOption = Some(localEquivalenceMap).filter(_.nonEmpty).map(_.maxBy(_._1.height)._2)
     }
     commonExpressions.toSeq

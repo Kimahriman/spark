@@ -20,7 +20,7 @@ import org.apache.spark.{SparkFunSuite, TaskContext, TaskContextImpl}
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BinaryType, DataType, Decimal, IntegerType}
+import org.apache.spark.sql.types.{BinaryType, DataType, Decimal, IntegerType, LongType}
 
 class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHelper {
   test("Semantic equals and hash") {
@@ -436,6 +436,17 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
 
       // `add1` is evaluated in the outer condition, and optionally in the inner value
       assert(equivalence.getCommonSubexpressions.size == 1)
+
+      val when1 = CaseWhen((GreaterThan(Literal(1), Literal(1)), Cast(Literal(1), LongType)) :: Nil)
+      val when2 = CaseWhen((GreaterThan(when1, Literal(2)), when1) :: Nil, when1)
+      val when3 = CaseWhen((GreaterThan(when1, Literal(1)), when2) :: Nil)
+
+      val equivalence2 = new EquivalentExpressions
+      equivalence2.addExprTree(when3)
+
+      // `when1` is evaluated in the outer condition, and optionally in the inner value multiple
+      // times including in a nested conditional
+      assert(equivalence2.getCommonSubexpressions.size == 1)
     }
   }
 
