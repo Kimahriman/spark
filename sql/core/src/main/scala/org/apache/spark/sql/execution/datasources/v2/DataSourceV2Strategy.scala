@@ -44,6 +44,7 @@ import org.apache.spark.sql.execution.{FilterExec, InSubqueryExec, LeafExecNode,
 import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, LogicalRelation, PushableColumnAndNestedColumn}
 import org.apache.spark.sql.execution.streaming.continuous.{WriteToContinuousDataSource, WriteToContinuousDataSourceExec}
 import org.apache.spark.sql.internal.StaticSQLConf.WAREHOUSE_PATH
+import org.apache.spark.sql.internal.connector.SupportsMetadata
 import org.apache.spark.sql.sources.{BaseRelation, TableScan}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -131,7 +132,14 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
 
     case PhysicalOperation(project, filters,
         DataSourceV2ScanRelation(_, scan: LocalScan, output, _, _)) =>
-      val localScanExec = LocalTableScanExec(output, scan.rows().toSeq)
+      val metadata = scan match {
+        case s: SupportsMetadata =>
+          s.getMetaData()
+        case _ =>
+          Map.empty[String, String]
+      }
+      val localScanExec = LocalTableScanExec(output, scan.rows().toSeq, Some(scan.description()),
+        metadata)
       withProjectAndFilter(project, filters, localScanExec, needsUnsafeConversion = false) :: Nil
 
     case PhysicalOperation(project, filters, relation: DataSourceV2ScanRelation) =>

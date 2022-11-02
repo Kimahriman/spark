@@ -17,18 +17,19 @@
 
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.{QueryTest, Row}
+import org.apache.spark.sql.{ExplainSuiteHelper, QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.catalog.{BasicInMemoryTableCatalog, Identifier, SupportsRead, Table, TableCapability}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read.{LocalScan, Scan, ScanBuilder}
-import org.apache.spark.sql.execution.LocalTableScanExec
+import org.apache.spark.sql.execution.{FormattedMode, LocalTableScanExec, SimpleMode}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.connector.SupportsMetadata
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
-class LocalScanSuite extends QueryTest with SharedSparkSession {
+class LocalScanSuite extends QueryTest with SharedSparkSession with ExplainSuiteHelper {
   override def beforeAll(): Unit = {
     super.beforeAll()
     spark.conf.set(SQLConf.DEFAULT_CATALOG.key, "testcat")
@@ -51,6 +52,12 @@ class LocalScanSuite extends QueryTest with SharedSparkSession {
     }
     assert(localScan.length == 1)
     checkAnswer(df, TestLocalScanTable.data.map(Row(_)))
+  }
+
+  test("local scan description") {
+    val df = spark.table("testcat.tbl")
+    checkKeywordsExistsInExplain(df, SimpleMode, "TestLocalScan", "ReadSchema: struct<i:int>")
+    checkKeywordsExistsInExplain(df, FormattedMode, "ReadSchema: struct<i:int>")
   }
 }
 
@@ -84,9 +91,22 @@ class TestLocalScanTable(override val name: String) extends Table with SupportsR
     override def build(): Scan = new TestLocalScan
   }
 
-  private class TestLocalScan extends LocalScan {
+  private class TestLocalScan extends LocalScan with SupportsMetadata {
     override def rows(): Array[InternalRow] = TestLocalScanTable.data.map(InternalRow(_)).toArray
 
     override def readSchema(): StructType = TestLocalScanTable.schema
+
+    override def getMetaData(): Map[String, String] = {
+      Map(
+        "ReadSchema" -> readSchema.catalogString
+      )
+    }
+
+    val metadataStr = getMetaData().toSeq.sorted.map {
+      case (key, value) =>
+        s"$key: $value"
+    }.mkString(", ")
+
+    override def description(): String = s"${this.getClass.getSimpleName} $metadataStr"
   }
 }

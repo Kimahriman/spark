@@ -20,7 +20,9 @@ package org.apache.spark.sql.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
+import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.util.Utils
 
 
 /**
@@ -31,7 +33,9 @@ import org.apache.spark.sql.execution.metric.SQLMetrics
  */
 case class LocalTableScanExec(
     output: Seq[Attribute],
-    @transient rows: Seq[InternalRow]) extends LeafExecNode with InputRDDCodegen {
+    @transient rows: Seq[InternalRow],
+    description: Option[String] = None,
+    metadata: Map[String, String] = Map.empty) extends LeafExecNode with InputRDDCodegen {
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"))
@@ -92,4 +96,43 @@ case class LocalTableScanExec(
   override protected val createUnsafeProjection: Boolean = false
 
   override def inputRDD: RDD[InternalRow] = rdd
+
+  /**
+   * Shorthand for calling redact() without specifying redacting rules
+   */
+  protected def redact(text: String): String = {
+    Utils.redact(session.sessionState.conf.stringRedactionPattern, text)
+  }
+
+  override def simpleString(maxFields: Int): String = {
+    description.map { desc =>
+      val result =
+        s"$nodeName${truncatedString(output, "[", ", ", "]", maxFields)} ${desc}"
+      redact(result)
+    }.getOrElse(super.simpleString(maxFields))
+  }
+
+  override def verboseStringWithOperatorId(): String = {
+    val metaDataStr = if (metadata.nonEmpty) {
+      metadata.toSeq.sorted.flatMap {
+        case (_, value) if value.isEmpty || value.equals("[]") => None
+        case (key, value) => Some(s"$key: ${redact(value)}")
+        case _ => None
+      }
+    } else if (description.isDefined) {
+      Seq(description.get)
+    } else {
+      Seq.empty
+    }
+
+    if (metaDataStr.nonEmpty) {
+      s"""
+        |$formattedNodeName
+        |${ExplainUtils.generateFieldString("Output", output)}
+        |${metaDataStr.mkString("\n")}
+        |""".stripMargin
+    } else {
+      super.verboseStringWithOperatorId()
+    }
+  }
 }
