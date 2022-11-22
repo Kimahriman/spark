@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 import scala.collection.mutable
 
-import org.apache.spark.sql.catalyst.CatalystTypeConverters.isPrimitive
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion, UnresolvedException}
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -454,7 +453,7 @@ case class ArrayTransform(
         val varAssignments = (Seq(elementAssignment) ++: indexAssignment).mkString("\n")
 
         // Some expressions return internal buffers that we have to copy
-        val copy = if (isPrimitive(function.dataType)) {
+        val copy = if (CodeGenerator.isPrimitiveType(function.dataType)) {
           s"${functionCode.value}"
         } else {
           s"InternalRow.copyValue(${functionCode.value})"
@@ -1197,7 +1196,7 @@ case class ArrayAggregate(
         val finishJavaType = CodeGenerator.javaType(accForFinishVar.dataType)
 
         // Some expressions return internal buffers that we have to copy
-        val mergeCopy = if (isPrimitive(merge.dataType)) {
+        val mergeCopy = if (CodeGenerator.isPrimitiveType(merge.dataType)) {
           s"${mergeCode.value}"
         } else {
           s"($mergeJavaType)InternalRow.copyValue(${mergeCode.value})"
