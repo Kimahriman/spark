@@ -91,6 +91,7 @@ class RocksDB(
   @volatile private var loadedVersion = -1L   // -1 = nothing valid is loaded
   @volatile private var numKeysOnLoadedVersion = 0L
   @volatile private var numKeysOnWritingVersion = 0L
+  @volatile private var lastWriteBatchMemUsage = 0L
   @volatile private var fileManagerMetrics = RocksDBFileManagerMetrics.EMPTY_METRICS
 
   @GuardedBy("acquireLock")
@@ -300,7 +301,10 @@ class RocksDB(
         fileManager.saveCheckpointToDfs(checkpointDir, newVersion, numKeysOnWritingVersion)
       }
 
+      // Save the memory usage of the most recent write batch, as stats are collected post-commit
+      lastWriteBatchMemUsage = writeBatch.getWriteBatch().getDataSize()
       writeBatch.clear()
+
       numKeysOnLoadedVersion = numKeysOnWritingVersion
       loadedVersion = newVersion
       fileManagerMetrics = fileManager.latestSaveCheckpointMetrics
@@ -375,7 +379,7 @@ class RocksDB(
     val memTableMemUsage = getDBProperty("rocksdb.size-all-mem-tables")
     val blockCacheUsage = getDBProperty("rocksdb.block-cache-usage")
     // Get the approximate memory usage of this writeBatchWithIndex
-    val writeBatchMemUsage = writeBatch.getWriteBatch.getDataSize
+    val writeBatchMemUsage = lastWriteBatchMemUsage
     val nativeOpsHistograms = Seq(
       "get" -> DB_GET,
       "put" -> DB_WRITE,
