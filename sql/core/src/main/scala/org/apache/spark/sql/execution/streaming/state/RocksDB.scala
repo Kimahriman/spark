@@ -299,6 +299,7 @@ class RocksDB(
       val fileSyncTimeMs = timeTakenMs {
         fileManager.saveCheckpointToDfs(checkpointDir, newVersion, numKeysOnWritingVersion)
       }
+
       writeBatch.clear()
       numKeysOnLoadedVersion = numKeysOnWritingVersion
       loadedVersion = newVersion

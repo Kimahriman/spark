@@ -116,7 +116,9 @@ class RocksDBSuite extends SparkFunSuite {
     withDB(remoteDir, conf = conf) { db =>
       // Generate versions without cleaning up
       for (version <- 1 to 50) {
-        db.put(version.toString, version.toString)  // update "1" -> "1", "2" -> "2", ...
+        for (key <- 1 to 10) {
+          db.put(key.toString, version.toString)
+        }
         db.commit()
       }
 
@@ -132,7 +134,7 @@ class RocksDBSuite extends SparkFunSuite {
       versionsPresent.foreach { version =>
         db.load(version)
         val data = db.iterator().map(toStr).toSet
-        assert(data === (1L to version).map(_.toString).map(x => x -> x).toSet)
+        assert(data === (1 to 10).map(_.toString).map(x => x -> version.toString).toSet)
       }
     }
   }
