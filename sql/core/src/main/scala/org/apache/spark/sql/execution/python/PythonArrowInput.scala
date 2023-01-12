@@ -73,7 +73,7 @@ private[python] trait PythonArrowInput[IN] { self: BasePythonRunner[IN, _] =>
       }
 
       protected override def writeIteratorToStream(dataOut: DataOutputStream): Unit = {
-        val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId)
+        val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId, true)
         val allocator = ArrowUtils.rootAllocator.newChildAllocator(
           s"stdout writer for $pythonExec", 0, Long.MaxValue)
         val root = VectorSchemaRoot.create(arrowSchema, allocator)

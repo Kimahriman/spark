@@ -4031,12 +4031,13 @@ class Dataset[T] private[sql](
    */
   private[sql] def collectAsArrowToR(): Array[Any] = {
     val timeZoneId = sparkSession.sessionState.conf.sessionLocalTimeZone
+    val largeVarTypes = sparkSession.sessionState.conf.arrowUseLargeVarTypes
 
     RRDD.serveToStream("serve-Arrow") { outputStream =>
       withAction("collectAsArrowToR", queryExecution) { plan =>
         val buffer = new ByteArrayOutputStream()
         val out = new DataOutputStream(outputStream)
-        val batchWriter = new ArrowBatchStreamWriter(schema, buffer, timeZoneId)
+        val batchWriter = new ArrowBatchStreamWriter(schema, buffer, timeZoneId, largeVarTypes)
         val arrowBatchRdd = toArrowBatchRdd(plan)
         val numPartitions = arrowBatchRdd.partitions.length
 
@@ -4085,11 +4086,12 @@ class Dataset[T] private[sql](
    */
   private[sql] def collectAsArrowToPython: Array[Any] = {
     val timeZoneId = sparkSession.sessionState.conf.sessionLocalTimeZone
+    val largeVarTypes = sparkSession.sessionState.conf.arrowUseLargeVarTypes
 
     PythonRDD.serveToStream("serve-Arrow") { outputStream =>
       withAction("collectAsArrowToPython", queryExecution) { plan =>
         val out = new DataOutputStream(outputStream)
-        val batchWriter = new ArrowBatchStreamWriter(schema, out, timeZoneId)
+        val batchWriter = new ArrowBatchStreamWriter(schema, out, timeZoneId, largeVarTypes)
 
         // Batches ordered by (index of partition, batch index in that partition) tuple
         val batchOrder = ArrayBuffer.empty[(Int, Int)]
@@ -4218,10 +4220,11 @@ class Dataset[T] private[sql](
     val schemaCaptured = this.schema
     val maxRecordsPerBatch = sparkSession.sessionState.conf.arrowMaxRecordsPerBatch
     val timeZoneId = sparkSession.sessionState.conf.sessionLocalTimeZone
+    val largeVarTypes = sparkSession.sessionState.conf.arrowUseLargeVarTypes
     plan.execute().mapPartitionsInternal { iter =>
       val context = TaskContext.get()
       ArrowConverters.toBatchIterator(
-        iter, schemaCaptured, maxRecordsPerBatch, timeZoneId, context)
+        iter, schemaCaptured, maxRecordsPerBatch, timeZoneId, largeVarTypes, context)
     }
   }
 
