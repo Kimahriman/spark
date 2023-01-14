@@ -35,8 +35,8 @@ private[sql] object ArrowUtils {
   // todo: support more types.
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
-  def toArrowType(dt: DataType, timeZoneId: String, largeVarTypes: Boolean = false
-      ): ArrowType = dt match {
+  def toArrowType(
+      dt: DataType, timeZoneId: String, largeVarTypes: Boolean = false): ArrowType = dt match {
     case BooleanType => ArrowType.Bool.INSTANCE
     case ByteType => new ArrowType.Int(8, true)
     case ShortType => new ArrowType.Int(8 * 2, true)
@@ -89,7 +89,10 @@ private[sql] object ArrowUtils {
 
   /** Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType */
   def toArrowField(
-      name: String, dt: DataType, nullable: Boolean, timeZoneId: String,
+      name: String,
+      dt: DataType,
+      nullable: Boolean,
+      timeZoneId: String,
       largeVarTypes: Boolean = false): Field = {
     dt match {
       case ArrayType(elementType, containsNull) =>
@@ -145,8 +148,8 @@ private[sql] object ArrowUtils {
   }
 
   /** Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType */
-  def toArrowSchema(schema: StructType, timeZoneId: String, largeVarTypes: Boolean = false
-      ): Schema = {
+  def toArrowSchema(
+      schema: StructType, timeZoneId: String, largeVarTypes: Boolean = false): Schema = {
     new Schema(schema.map { field =>
       toArrowField(field.name, field.dataType, field.nullable, timeZoneId, largeVarTypes)
     }.asJava)
