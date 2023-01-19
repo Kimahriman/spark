@@ -73,9 +73,9 @@ def to_arrow_type(dt: DataType) -> "pa.DataType":
     elif type(dt) == DecimalType:
         arrow_type = pa.decimal128(dt.precision, dt.scale)
     elif type(dt) == StringType:
-        arrow_type = pa.string()
+        arrow_type = pa.large_string()
     elif type(dt) == BinaryType:
-        arrow_type = pa.binary()
+        arrow_type = pa.large_binary()
     elif type(dt) == DateType:
         arrow_type = pa.date32()
     elif type(dt) == TimestampType:
