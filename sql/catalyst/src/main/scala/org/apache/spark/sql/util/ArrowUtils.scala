@@ -35,7 +35,8 @@ private[sql] object ArrowUtils {
   // todo: support more types.
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
-  def toArrowType(dt: DataType, timeZoneId: String): ArrowType = dt match {
+  def toArrowType(
+      dt: DataType, timeZoneId: String, largeVarTypes: Boolean = false): ArrowType = dt match {
     case BooleanType => ArrowType.Bool.INSTANCE
     case ByteType => new ArrowType.Int(8, true)
     case ShortType => new ArrowType.Int(8 * 2, true)
@@ -43,8 +44,8 @@ private[sql] object ArrowUtils {
     case LongType => new ArrowType.Int(8 * 8, true)
     case FloatType => new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
     case DoubleType => new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
-    case StringType => ArrowType.Utf8.INSTANCE
-    case BinaryType => ArrowType.Binary.INSTANCE
+    case StringType => ArrowType.LargeUtf8.INSTANCE
+    case BinaryType => ArrowType.LargeBinary.INSTANCE
     case DecimalType.Fixed(precision, scale) => new ArrowType.Decimal(precision, scale)
     case DateType => new ArrowType.Date(DateUnit.DAY)
     case TimestampType if timeZoneId == null =>
@@ -71,6 +72,8 @@ private[sql] object ArrowUtils {
       if float.getPrecision() == FloatingPointPrecision.DOUBLE => DoubleType
     case ArrowType.Utf8.INSTANCE => StringType
     case ArrowType.Binary.INSTANCE => BinaryType
+    case ArrowType.LargeUtf8.INSTANCE => StringType
+    case ArrowType.LargeBinary.INSTANCE => BinaryType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
     case date: ArrowType.Date if date.getUnit == DateUnit.DAY => DateType
     case ts: ArrowType.Timestamp

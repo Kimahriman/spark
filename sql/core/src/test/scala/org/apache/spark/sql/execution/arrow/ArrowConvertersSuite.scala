@@ -502,21 +502,21 @@ class ArrowConvertersSuite extends SharedSparkSession {
          |    "fields" : [ {
          |      "name" : "upper_case",
          |      "type" : {
-         |        "name" : "utf8"
+         |        "name" : "largeutf8"
          |      },
          |      "nullable" : true,
          |      "children" : [ ]
          |    }, {
          |      "name" : "lower_case",
          |      "type" : {
-         |        "name" : "utf8"
+         |        "name" : "largeutf8"
          |      },
          |      "nullable" : true,
          |      "children" : [ ]
          |    }, {
          |      "name" : "null_str",
          |      "type" : {
-         |        "name" : "utf8"
+         |        "name" : "largeutf8"
          |      },
          |      "nullable" : true,
          |      "children" : [ ]
@@ -625,7 +625,7 @@ class ArrowConvertersSuite extends SharedSparkSession {
          |    "fields" : [ {
          |      "name" : "a_binary",
          |      "type" : {
-         |        "name" : "binary"
+         |        "name" : "largebinary"
          |      },
          |      "nullable" : true,
          |      "children" : [ ]
