@@ -42,6 +42,7 @@ class ArrowPythonRunner(
     argOffsets: Array[Array[Int]],
     schema: StructType,
     timeZoneId: String,
+    largeVarTypes: Boolean,
     conf: Map[String, String])
   extends BasePythonRunner[Iterator[InternalRow], ColumnarBatch](funcs, evalType, argOffsets)
   with PythonArrowOutput {
@@ -75,7 +76,7 @@ class ArrowPythonRunner(
       }
 
       protected override def writeIteratorToStream(dataOut: DataOutputStream): Unit = {
-        val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId)
+        val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId, largeVarTypes)
         val allocator = ArrowUtils.rootAllocator.newChildAllocator(
           s"stdout writer for $pythonExec", 0, Long.MaxValue)
         val root = VectorSchemaRoot.create(arrowSchema, allocator)

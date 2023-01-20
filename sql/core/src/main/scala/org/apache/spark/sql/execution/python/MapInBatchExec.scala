@@ -47,6 +47,8 @@ trait MapInBatchExec extends UnaryExecNode {
 
   private val batchSize = conf.arrowMaxRecordsPerBatch
 
+  private val largeVarTypes = conf.arrowUseLargeVarTypes
+
   override def outputPartitioning: Partitioning = child.outputPartitioning
 
   override protected def doExecute(): RDD[InternalRow] = {
@@ -75,6 +77,7 @@ trait MapInBatchExec extends UnaryExecNode {
         argOffsets,
         StructType(StructField("struct", outputTypes) :: Nil),
         sessionLocalTimeZone,
+        largeVarTypes,
         pythonRunnerConf).compute(batchIter, context.partitionId(), context)
 
       val unsafeProj = UnsafeProjection.create(output, output)
