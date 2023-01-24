@@ -307,6 +307,30 @@ class DataFrameTestsMixin:
         df5 = df1.repartitionByRange(5, "name", "age")
         self.assertEqual(df5.rdd.first(), df2.rdd.first())
         self.assertEqual(df5.rdd.take(3), df2.rdd.take(3))
+    
+
+    def test_rebalance_dataframe(self):
+        schema = StructType(
+            [
+                StructField("name", StringType(), True),
+                StructField("age", IntegerType(), True),
+                StructField("height", DoubleType(), True),
+            ]
+        )
+
+        df1 = self.spark.createDataFrame(
+            [("Bob", 27, 66.0), ("Alice", 10, 10.0), ("Bob", 10, 66.0)], schema
+        )
+
+        # AQE coalesces these partitions
+        df3 = df1.rebalance(2, "name", "age")
+        self.assertEqual(df3.rdd.getNumPartitions(), 1)
+
+        df4 = df1.rebalance(2)
+        self.assertEqual(df4.rdd.getNumPartitions(), 1)
+
+        df5 = df1.rebalance("name", "age")
+        self.assertEqual(df5.rdd.getNumPartitions(), 1)
 
     def test_replace(self):
         schema = StructType(

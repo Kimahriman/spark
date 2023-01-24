@@ -3596,6 +3596,45 @@ class Dataset[T] private[sql](
   }
 
   /**
+   * Returns a new Dataset that is rebalanced to have `numPartitions` partitions.
+   * The difference between this and repartition is that AQE treats this as a suggestion
+   * and will split skewed partitions in addition to coalescing small ones.
+   *
+   * @group typedrel
+   * @since 3.4.0
+   */
+  def rebalance(numPartitions: Int): Dataset[T] = withTypedPlan {
+    RebalancePartitions(Seq.empty, logicalPlan, Some(numPartitions))
+  }
+
+  /**
+   * Returns a new Dataset partitioned by the given partitioning expressions into
+   * `numPartitions`. The difference between this and repartition is that AQE treats this as a
+   * suggestion and will split skewed partitions in addition to coalescing small ones.
+   *
+   * @group typedrel
+   * @since 3.4.0
+   */
+  @scala.annotation.varargs
+  def rebalance(numPartitions: Int, partitionExprs: Column*): Dataset[T] = withTypedPlan {
+    RebalancePartitions(partitionExprs.map(_.expr), logicalPlan, Some(numPartitions))
+  }
+
+  /**
+   * Returns a new Dataset partitioned by the given partitioning expressions, using
+   * `spark.sql.shuffle.partitions` as number of partitions. The difference between this and
+   * repartition is that AQE treats this as a suggestion and will split skewed partitions in
+   * addition to coalescing small ones.
+   *
+   * @group typedrel
+   * @since 3.4.0
+   */
+  @scala.annotation.varargs
+  def rebalance(partitionExprs: Column*): Dataset[T] = withTypedPlan {
+    RebalancePartitions(partitionExprs.map(_.expr), logicalPlan)
+  }
+
+  /**
    * Returns a new Dataset that contains only the unique rows from this Dataset.
    * This is an alias for `dropDuplicates`.
    *

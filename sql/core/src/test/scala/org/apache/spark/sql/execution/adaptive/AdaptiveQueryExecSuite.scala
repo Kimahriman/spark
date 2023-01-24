@@ -26,7 +26,7 @@ import org.scalatest.time.SpanSugar._
 
 import org.apache.spark.SparkException
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent, SparkListenerJobStart}
-import org.apache.spark.sql.{Dataset, QueryTest, Row, SparkSession, Strategy}
+import org.apache.spark.sql.{DataFrame, Dataset, QueryTest, Row, SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight}
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.execution.{CollectLimitExec, LocalTableScanExec, PartialReducerPartitionSpec, QueryExecution, ReusedSubqueryExec, ShuffledRowRDD, SortExec, SparkPlan, SparkPlanInfo, UnionExec}
@@ -58,6 +58,10 @@ class AdaptiveQueryExecSuite
   setupTestData()
 
   private def runAdaptiveAndVerifyResult(query: String): (SparkPlan, SparkPlan) = {
+    runAdaptiveAndVerifyResult(sql(query))
+  }
+
+  private def runAdaptiveAndVerifyResult(df: DataFrame): (SparkPlan, SparkPlan) = {
     var finalPlanCnt = 0
     val listener = new SparkListener {
       override def onOtherEvent(event: SparkListenerEvent): Unit = {
@@ -73,12 +77,11 @@ class AdaptiveQueryExecSuite
     }
     spark.sparkContext.addSparkListener(listener)
 
-    val dfAdaptive = sql(query)
+    val dfAdaptive = df
     val planBefore = dfAdaptive.queryExecution.executedPlan
     assert(planBefore.toString.startsWith("AdaptiveSparkPlan isFinalPlan=false"))
     val result = dfAdaptive.collect()
     withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
-      val df = sql(query)
       checkAnswer(df, result)
     }
     val planAfter = dfAdaptive.queryExecution.executedPlan
@@ -2122,9 +2125,10 @@ class AdaptiveQueryExecSuite
         SQLConf.SHUFFLE_PARTITIONS.key -> "5",
         SQLConf.COALESCE_PARTITIONS_MIN_PARTITION_NUM.key -> "1") {
 
-        spark.sparkContext.parallelize(
+        val df = spark.sparkContext.parallelize(
           (1 to 10).map(i => TestData(if (i > 4) 5 else i, i.toString)), 3)
-          .toDF("c1", "c2").createOrReplaceTempView("v")
+          .toDF("c1", "c2")
+        df.createOrReplaceTempView("v")
 
         def checkPartitionNumber(
             query: String, skewedPartitionNumber: Int, totalNumber: Int): Unit = {
@@ -2148,6 +2152,48 @@ class AdaptiveQueryExecSuite
         // no skewed partition should be optimized
         withSQLConf(SQLConf.ADVISORY_PARTITION_SIZE_IN_BYTES.key -> "10000") {
           checkPartitionNumber("SELECT /*+ REBALANCE(c1) */ * FROM v", 0, 1)
+        }
+      }
+    }
+  }
+
+
+  test("SPARK-XXXXX: rebalance dataset API") {
+    withTempView("v") {
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.COALESCE_PARTITIONS_ENABLED.key -> "true",
+        SQLConf.ADAPTIVE_OPTIMIZE_SKEWS_IN_REBALANCE_PARTITIONS_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        SQLConf.COALESCE_PARTITIONS_MIN_PARTITION_NUM.key -> "1") {
+
+        val df = spark.sparkContext.parallelize(
+          (1 to 10).map(i => TestData(if (i > 4) 5 else i, i.toString)), 3)
+          .toDF("c1", "c2")
+
+        def checkPartitionNumber(
+            df: DataFrame, skewedPartitionNumber: Int, totalNumber: Int): Unit = {
+          val (_, adaptive) = runAdaptiveAndVerifyResult(df)
+          val read = collect(adaptive) {
+            case read: AQEShuffleReadExec => read
+          }
+          assert(read.size == 1)
+          assert(read.head.partitionSpecs.count(_.isInstanceOf[PartialReducerPartitionSpec]) ==
+            skewedPartitionNumber)
+          assert(read.head.partitionSpecs.size == totalNumber)
+        }
+
+        withSQLConf(SQLConf.ADVISORY_PARTITION_SIZE_IN_BYTES.key -> "150") {
+          // partition size [0,258,72,72,72]
+          checkPartitionNumber(df.rebalance($"c1"), 2, 4)
+          // partition size [144,72,144,72,72,144,72]
+          checkPartitionNumber(df.rebalance(), 6, 7)
+        }
+
+        // no skewed partition should be optimized
+        withSQLConf(SQLConf.ADVISORY_PARTITION_SIZE_IN_BYTES.key -> "10000") {
+          checkPartitionNumber(df.rebalance($"c1"), 0, 1)
         }
       }
     }

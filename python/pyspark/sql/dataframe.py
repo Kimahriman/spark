@@ -1690,6 +1690,72 @@ class DataFrame(PandasMapOpsMixin, PandasConversionMixin):
         else:
             raise TypeError("numPartitions should be an int, string or Column")
 
+    @overload
+    def rebalance(self, numPartitions: int, *cols: "ColumnOrName") -> "DataFrame":
+        ...
+
+    @overload
+    def rebalance(self, *cols: "ColumnOrName") -> "DataFrame":
+        ...
+
+    def rebalance(  # type: ignore[misc]
+        self, numPartitions: Union[int, "ColumnOrName"], *cols: "ColumnOrName"
+    ) -> "DataFrame":
+        """
+        Returns a new :class:`DataFrame` partitioned by the given partitioning expressions. 
+        The difference between this and repartition is that AQE treats this as a suggestion
+        and will split skewed partitions in addition to coalescing small ones.
+
+        .. versionadded:: 3.4.0
+
+        Parameters
+        ----------
+        numPartitions : int
+            can be an int to specify the target number of partitions or a Column.
+            If it is a Column, it will be used as the first partitioning column. If not specified,
+            the default number of partitions is used.
+        cols : str or :class:`Column`
+            partitioning columns.
+
+        Returns
+        -------
+        :class:`DataFrame`
+            Rebalanced DataFrame.
+
+        Examples
+        --------
+        >>> df = spark.createDataFrame(
+        ...     [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])
+
+        Rebalance the data into 10 partitions.
+
+        >>> df.rebalance(10).rdd.getNumPartitions()
+        10
+
+        Rebalance the data into 7 partitions by 'age' column.
+
+        >>> df.rebalance(7, "age").rdd.getNumPartitions()
+        7
+
+        Rebalance the data into 7 partitions by 'age' and 'name columns.
+
+        >>> df.rebalance(3, "name", "age").rdd.getNumPartitions()
+        3
+        """
+        if isinstance(numPartitions, int):
+            if len(cols) == 0:
+                return DataFrame(self._jdf.rebalance(numPartitions), self.sparkSession)
+            else:
+                return DataFrame(
+                    self._jdf.rebalance(numPartitions, self._jcols(*cols)),
+                    self.sparkSession,
+                )
+        elif isinstance(numPartitions, (str, Column)):
+            cols = (numPartitions,) + cols
+            return DataFrame(self._jdf.rebalance(self._jcols(*cols)), self.sparkSession)
+        else:
+            raise TypeError("numPartitions should be an int or Column")
+
     def distinct(self) -> "DataFrame":
         """Returns a new :class:`DataFrame` containing the distinct rows in this :class:`DataFrame`.
 
