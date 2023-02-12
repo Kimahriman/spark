@@ -1213,7 +1213,7 @@ case class ArrayAggregate(
         val initialAtomic = assignAtomic(mergeAtomic, accForMergeCode.value,
           accForMergeCode.isNull, merge.nullable)
 
-        val mergeAssignment = assignVar(accForMergeCode, mergeCode.value,
+        val mergeAssignment = assignVar(accForMergeCode, mergeCopy,
           mergeCode.isNull, merge.nullable)
         val mergeAtomicAssignment = assignAtomic(mergeAtomic, accForMergeCode.value,
           accForMergeCode.isNull, merge.nullable)
