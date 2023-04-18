@@ -18,9 +18,13 @@
 package org.apache.spark
 
 import java.io.File
-import java.security.NoSuchAlgorithmException
-import javax.net.ssl.SSLContext
+import java.nio.file.Files
+import java.security.{KeyStore, NoSuchAlgorithmException}
+import javax.net.ssl.{KeyManagerFactory, SSLContext, TrustManagerFactory}
 
+import scala.collection.JavaConverters._
+
+import _root_.io.netty.handler.ssl.{ClientAuth, SslContextBuilder}
 import org.apache.hadoop.conf.Configuration
 import org.eclipse.jetty.util.ssl.SslContextFactory
 
@@ -91,6 +95,58 @@ private[spark] case class SSLOptions(
       }
 
       Some(sslContextFactory)
+    } else {
+      None
+    }
+  }
+
+  /**
+   * Creates a Netty SSL context builder according to the SSL settings represented by this object.
+   */
+  def createNettySslContextBuilder(): Option[SslContextBuilder] = {
+    if (enabled) {
+      val keyStoreInstance = KeyStore.getInstance(keyStoreType.getOrElse(KeyStore.getDefaultType))
+      keyStore.foreach { file =>
+        val fileInputStream = Files.newInputStream(file.toPath())
+        try {
+          keyStoreInstance.load(fileInputStream,
+            keyStorePassword.map(_.toCharArray).getOrElse(null))
+        } finally {
+          fileInputStream.close()
+        }
+      }
+      val keyManagerFactory =
+        KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+      keyManagerFactory.init(keyStoreInstance, keyPassword.map(_.toCharArray).getOrElse(null))
+
+      val sslContextBuilder = SslContextBuilder.forServer(keyManagerFactory)
+
+      if (needClientAuth) {
+        val trustStoreInstance = KeyStore.getInstance(
+          trustStoreType.getOrElse(KeyStore.getDefaultType))
+        trustStore.foreach { file =>
+          val fileInputStream = Files.newInputStream(file.toPath())
+          try {
+            trustStoreInstance.load(fileInputStream,
+              trustStorePassword.map(_.toCharArray).getOrElse(null))
+          } finally {
+            fileInputStream.close()
+          }
+        }
+        val trustManagerFactory =
+          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        trustManagerFactory.init(trustStoreInstance)
+
+        sslContextBuilder.trustManager(trustManagerFactory)
+        sslContextBuilder.clientAuth(ClientAuth.REQUIRE)
+      }
+
+      sslContextBuilder.protocols(protocol.toSeq: _*)
+      if (supportedAlgorithms.nonEmpty) {
+        sslContextBuilder.ciphers(supportedAlgorithms.toIterable.asJava)
+      }
+
+      Some(sslContextBuilder)
     } else {
       None
     }

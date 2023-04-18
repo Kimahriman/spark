@@ -28,7 +28,7 @@ import com.google.common.cache.CacheBuilder
 import com.google.protobuf.{Any => ProtoAny}
 import com.google.rpc.{Code => RPCCode, ErrorInfo, Status => RPCStatus}
 import io.grpc.{Server, Status}
-import io.grpc.netty.NettyServerBuilder
+import io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.protobuf.StatusProto
 import io.grpc.protobuf.services.ProtoReflectionService
 import io.grpc.stub.StreamObserver
@@ -306,11 +306,22 @@ object SparkConnectService {
    */
   private def startGRPCService(): Unit = {
     val debugMode = SparkEnv.get.conf.getBoolean("spark.connect.grpc.debug.enabled", true)
-    val port = SparkEnv.get.conf.get(CONNECT_GRPC_BINDING_PORT)
+
+    val tlsOptions = SparkEnv.get.securityManager.getSSLOptions("connect")
+    val port = tlsOptions.port match {
+      case Some(p) if tlsOptions.enabled => p
+      case _ => SparkEnv.get.conf.get(CONNECT_GRPC_BINDING_PORT)
+    }
+
     val sb = NettyServerBuilder
       .forPort(port)
       .maxInboundMessageSize(SparkEnv.get.conf.get(CONNECT_GRPC_MAX_INBOUND_MESSAGE_SIZE).toInt)
       .addService(new SparkConnectService(debugMode))
+
+    tlsOptions.createNettySslContextBuilder().foreach { ctx =>
+      val grpcSslContext = GrpcSslContexts.configure(ctx)
+      sb.sslContext(grpcSslContext.build())
+    }
 
     // Add all registered interceptors to the server builder.
     SparkConnectInterceptorRegistry.chainInterceptors(sb)
