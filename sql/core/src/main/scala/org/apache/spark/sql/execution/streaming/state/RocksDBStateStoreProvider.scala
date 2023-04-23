@@ -103,6 +103,10 @@ private[sql] class RocksDBStateStoreProvider
       state = ABORTED
     }
 
+    override def close(): Unit = {
+      rocksDB.complete()
+    }
+
     override def metrics: StateStoreMetrics = {
       val rocksDBMetrics = rocksDB.metrics
       def commitLatencyMs(typ: String): Long = rocksDBMetrics.lastCommitLatencyMs.getOrElse(typ, 0L)

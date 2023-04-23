@@ -123,7 +123,7 @@ class RocksDB(
     acquire()
     logInfo(s"Loading $version")
     try {
-      if (loadedVersion != version) {
+      if (loadedVersion != version || db == null) {
         closeDB()
         val metadata = fileManager.loadCheckpointFromDfs(version, workingDir)
         openDB()
@@ -362,6 +362,13 @@ class RocksDB(
     logInfo(s"Cleaned old data, time taken: $cleanupTime ms")
   }
 
+  def complete(): Unit = {
+    if (!conf.keepOpen) {
+      // Close the underlying DB to release memory
+      closeDB()
+    }
+  }
+
   /** Release all resources */
   def close(): Unit = {
     closePrefixScanIterators()
@@ -578,7 +585,8 @@ case class RocksDBConf(
     trackTotalNumberOfRows: Boolean,
     maxOpenFiles: Int,
     writeBufferSizeMB: Long,
-    maxWriteBufferNumber: Int)
+    maxWriteBufferNumber: Int,
+    keepOpen: Boolean)
 
 object RocksDBConf {
   /** Common prefix of all confs in SQLConf that affects RocksDB */
@@ -637,6 +645,12 @@ object RocksDBConf {
   // maxWriteBufferNumber, then RocksDB will stall further writes.
   // This may happen if the flush process is slower than the write rate.
   private val MAX_WRITE_BUFFER_NUMBER_CONF = SQLConfEntry("maxWriteBufferNumber", "-1")
+
+  // Configuration to control whether we keep the RocksDB instance active after the task
+  // completes. Keeping it open can reduce latency for short batches but can accumulate
+  // native memory across multiple tasks on an executor. Disabling this will limit the
+  // native memory used to that required for a single task.
+  private val KEEP_OPEN = SQLConfEntry("keepOpen", "false")
 
   def apply(storeConf: StateStoreConf): RocksDBConf = {
     val sqlConfs = CaseInsensitiveMap[String](storeConf.sqlConfs)
@@ -699,7 +713,8 @@ object RocksDBConf {
       getBooleanConf(TRACK_TOTAL_NUMBER_OF_ROWS),
       getIntConf(MAX_OPEN_FILES_CONF),
       getLongConf(WRITE_BUFFER_SIZE_MB_CONF),
-      getIntConf(MAX_WRITE_BUFFER_NUMBER_CONF))
+      getIntConf(MAX_WRITE_BUFFER_NUMBER_CONF),
+      getBooleanConf(KEEP_OPEN))
   }
 
   def apply(): RocksDBConf = apply(new StateStoreConf())

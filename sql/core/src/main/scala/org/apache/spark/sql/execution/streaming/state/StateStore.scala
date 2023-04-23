@@ -85,7 +85,12 @@ trait ReadStateStore {
    *
    * The method name is to respect backward compatibility on [[StateStore]].
    */
-  def abort(): Unit
+  def abort(): Unit = {}
+
+  /**
+   * Cleans up the resource. Default implementation calls abort for backward compatibility.
+   */
+  def close(): Unit = abort()
 }
 
 /**
@@ -125,6 +130,11 @@ trait StateStore extends ReadStateStore {
   override def abort(): Unit
 
   /**
+   * Cleanup resources after the task completes. Called whether the tasks succeeds or not.
+   */
+  override def close(): Unit = {}
+
+  /**
    * Return an iterator containing all the key-value pairs in the StateStore. Implementations must
    * ensure that updates (puts, removes) can be made while iterating over this iterator.
    *
@@ -154,6 +164,12 @@ class WrappedReadStateStore(store: StateStore) extends ReadStateStore {
   override def iterator(): Iterator[UnsafeRowPair] = store.iterator()
 
   override def abort(): Unit = store.abort()
+
+  /**
+   * Since the wrapped store overrides the close method, we call abort directly here for backward
+   * compatibility.
+   */
+  override def close(): Unit = store.abort()
 
   override def prefixScan(prefixKey: UnsafeRow): Iterator[UnsafeRowPair] =
     store.prefixScan(prefixKey)

@@ -64,6 +64,7 @@ package object state {
         // Abort the state store in case of error
         TaskContext.get().addTaskCompletionListener[Unit](_ => {
           if (!store.hasCommitted) store.abort()
+          store.close()
         })
         cleanedF(store, iter)
       }
@@ -99,7 +100,7 @@ package object state {
       val wrappedF = (store: ReadStateStore, iter: Iterator[T]) => {
         // Clean up the state store.
         TaskContext.get().addTaskCompletionListener[Unit](_ => {
-          store.abort()
+          store.close()
         })
         cleanedF(store, iter)
       }
