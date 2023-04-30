@@ -112,26 +112,22 @@ class EquivalentExpressions {
    * only the common nodes.
    * Those common nodes are then removed from the local map and added to the final map of
    * expressions.
+   *
+   * Conditional expressions are not considered because we are simply looking for expressions
+   * evaluated once in each parent expression.
    */
-  private def updateCommonExprs(
-      exprs: Seq[Expression],
-      map: mutable.HashMap[ExpressionEquals, ExpressionStats],
-      useCount: Int): Seq[ExpressionEquals] = {
+  private def updateCommonExprs(exprs: Seq[Expression]): Seq[ExpressionEquals] = {
     assert(exprs.length > 1)
     var localEquivalenceMap = mutable.HashMap.empty[ExpressionEquals, ExpressionStats]
-    updateExprTree(exprs.head, localEquivalenceMap)
+    updateExprTree(exprs.head, localEquivalenceMap, conditionalsEnabled = false)
 
     exprs.tail.foreach { expr =>
       val otherLocalEquivalenceMap = mutable.HashMap.empty[ExpressionEquals, ExpressionStats]
-      updateExprTree(expr, otherLocalEquivalenceMap)
+      updateExprTree(expr, otherLocalEquivalenceMap, conditionalsEnabled = false)
       localEquivalenceMap = localEquivalenceMap.filter { case (key, _) =>
         otherLocalEquivalenceMap.contains(key)
       }
     }
-
-    // Filter out any expressions that are only conditional evaluated. We won't
-    // consider these for common expressions
-    localEquivalenceMap = localEquivalenceMap.filter(_._2.useCount > 0)
 
     val commonExpressions = mutable.ListBuffer.empty[ExpressionEquals]
 
@@ -141,8 +137,7 @@ class EquivalentExpressions {
     var statsOption = Some(localEquivalenceMap).filter(_.nonEmpty).map(_.maxBy(_._1.height)._2)
     while (statsOption.nonEmpty) {
       val stats = statsOption.get
-      updateExprTree(stats.expr, localEquivalenceMap, -stats.useCount)
-      updateExprTree(stats.expr, map, useCount)
+      updateExprTree(stats.expr, localEquivalenceMap, -stats.useCount, conditionalsEnabled = false)
       commonExpressions += ExpressionEquals(stats.expr)
 
       // Filter out any conditional-only expressions that were added while updating the tree
@@ -186,14 +181,9 @@ class EquivalentExpressions {
    * Adds the expression to this data structure recursively. Stops if a matching expression
    * is found. That is, if `expr` has already been added, its children are not added.
    */
-  def addExprTree(
-      expr: Expression,
-      map: mutable.HashMap[ExpressionEquals, ExpressionStats] = equivalenceMap,
-      conditional: Boolean = false,
-      skipExpressions: mutable.Set[ExpressionEquals] = mutable.Set.empty[ExpressionEquals]
-      ): Unit = {
+  def addExprTree(expr: Expression): Unit = {
     if (supportedExpression(expr)) {
-      updateExprTree(expr, map, 1, conditional, skipExpressions)
+      updateExprTree(expr)
     }
   }
 
@@ -201,8 +191,9 @@ class EquivalentExpressions {
       expr: Expression,
       map: mutable.HashMap[ExpressionEquals, ExpressionStats] = equivalenceMap,
       useCount: Int = 1,
+      conditionalsEnabled: Boolean = SQLConf.get.subexpressionEliminationConditionalsEnabled,
       conditional: Boolean = false,
-      skipExpressions: mutable.Set[ExpressionEquals] = mutable.Set.empty[ExpressionEquals]
+      skipExpressions: Set[ExpressionEquals] = Set.empty[ExpressionEquals]
       ): Unit = {
     val skip = useCount == 0 ||
       expr.isInstanceOf[LeafExpression] ||
@@ -212,7 +203,7 @@ class EquivalentExpressions {
       val uc = useCount.signum
       val recurseChildren = childrenToRecurse(expr)
       recurseChildren.alwaysChildren.foreach { child =>
-        updateExprTree(child, map, uc, conditional, skipExpressions)
+        updateExprTree(child, map, uc, conditionalsEnabled, conditional, skipExpressions)
       }
 
       /**
@@ -225,17 +216,20 @@ class EquivalentExpressions {
        */
       val commonExpressions = recurseChildren.commonChildren.flatMap { exprs =>
         if (exprs.nonEmpty) {
-          updateCommonExprs(exprs, map, uc)
+          updateCommonExprs(exprs)
         } else {
           Nil
         }
       }
+      commonExpressions.foreach { ce =>
+        updateExprTree(ce.e, map, uc, conditionalsEnabled, conditional, skipExpressions)
+      }
 
-      if (SQLConf.get.subexpressionEliminationConditionalsEnabled) {
-        val commonExpressionSet = mutable.Set[ExpressionEquals]()
-        commonExpressions.foreach(ce => commonExpressionSet.add(ce))
+      if (conditionalsEnabled) {
+        // Add all conditional expressions, skipping those that were already counted as common
+        // expressions.
         recurseChildren.conditionalChildren.foreach { cc =>
-          addExprTree(cc, map, true, commonExpressionSet)
+          updateExprTree(cc, map, uc, true, true, commonExpressions.toSet)
         }
       }
     }

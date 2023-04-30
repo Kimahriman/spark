@@ -868,7 +868,7 @@ object SQLConf {
     buildConf("spark.sql.subexpressionElimination.conditionals.enabled")
       .internal()
       .doc("When true, common conditional subexpressions will be eliminated.")
-      .version("3.4.0")
+      .version("3.5.0")
       .booleanConf
       .createWithDefault(false)
 
