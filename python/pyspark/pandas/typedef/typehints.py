@@ -290,6 +290,8 @@ def spark_type_to_pandas_dtype(
             types.MapType,
             types.StructType,
             types.UserDefinedType,
+            types.StringType,
+            types.BinaryType
         ),
     ):
         return np.dtype("object")
