@@ -51,7 +51,7 @@ private[sql] class ArrowBatchStreamWriter(
     timeZoneId: String,
     errorOnDuplicatedFieldNames: Boolean) {
 
-  val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames)
+  val arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames, true)
   val writeChannel = new WriteChannel(Channels.newChannel(out))
 
   // Write the Arrow schema first, before batches
@@ -82,7 +82,7 @@ private[sql] object ArrowConverters extends Logging {
       context: TaskContext) extends Iterator[Array[Byte]] {
 
     protected val arrowSchema =
-      ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames)
+      ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames, true)
     private val allocator =
       ArrowUtils.rootAllocator.newChildAllocator(
         s"to${this.getClass.getSimpleName}", 0, Long.MaxValue)
@@ -286,7 +286,7 @@ private[sql] object ArrowConverters extends Logging {
 
     override def nextBatch(): (Iterator[InternalRow], StructType) = {
       val arrowSchema =
-        ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames)
+        ArrowUtils.toArrowSchema(schema, timeZoneId, errorOnDuplicatedFieldNames, true)
       val root = VectorSchemaRoot.create(arrowSchema, allocator)
       resources.append(root)
       val arrowRecordBatch = ArrowConverters.loadBatch(arrowBatchIter.next(), allocator)
