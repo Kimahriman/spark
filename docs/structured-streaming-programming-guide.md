@@ -2385,6 +2385,12 @@ Here are the configs regarding to RocksDB instance of the state store provider:
     <td>Total memory to be occupied by blocks in high priority pool as a fraction of memory allocated across all RocksDB instances on a single node using maxMemoryUsageMB.</td>
     <td>0.1</td>
   </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.forceJavaTmpDir</td>
+    <td>Whether to force `java.io.tmpdir` to be used to store local RocksDB data, otherwise uses the default deployment-specific
+    local temporary directory lookup (which may fall back to `java.io.tmpdir`).</td>
+    <td>false</td>
+  </tr>
 </table>
 
 ##### RocksDB State Store Memory Management
