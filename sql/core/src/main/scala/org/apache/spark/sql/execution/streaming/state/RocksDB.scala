@@ -712,7 +712,8 @@ case class RocksDBConf(
     totalMemoryUsageMB: Long,
     writeBufferCacheRatio: Double,
     highPriorityPoolRatio: Double,
-    compressionCodec: String)
+    compressionCodec: String,
+    forceJavaTmpDir: Boolean)
 
 object RocksDBConf {
   /** Common prefix of all confs in SQLConf that affects RocksDB */
@@ -795,6 +796,11 @@ object RocksDBConf {
   private val HIGH_PRIORITY_POOL_RATIO_CONF = SQLConfEntry(HIGH_PRIORITY_POOL_RATIO_CONF_KEY,
     "0.1")
 
+  // Whether to use the configured Java temporary directory or one of the configured local
+  // directories to store the RocksDB data. Defaults to using the local directories
+  val FORCE_JAVA_TMP_DIR_CONF_KEY = "forceJavaTmpDir"
+  private val FORCE_JAVA_TMP_DIR_CONF = SQLConfEntry(FORCE_JAVA_TMP_DIR_CONF_KEY, "false")
+
   def apply(storeConf: StateStoreConf): RocksDBConf = {
     val sqlConfs = CaseInsensitiveMap[String](storeConf.sqlConfs)
     val extraConfs = CaseInsensitiveMap[String](storeConf.extraOptions)
@@ -872,7 +878,8 @@ object RocksDBConf {
       getLongConf(MAX_MEMORY_USAGE_MB_CONF),
       getRatioConf(WRITE_BUFFER_CACHE_RATIO_CONF),
       getRatioConf(HIGH_PRIORITY_POOL_RATIO_CONF),
-      storeConf.compressionCodec)
+      storeConf.compressionCodec,
+      getBooleanConf(FORCE_JAVA_TMP_DIR_CONF))
   }
 
   def apply(): RocksDBConf = apply(new StateStoreConf())
