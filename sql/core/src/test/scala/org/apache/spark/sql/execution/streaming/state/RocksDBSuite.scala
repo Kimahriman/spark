@@ -3463,6 +3463,28 @@ class RocksDBSuite extends AlsoTestWithRocksDBFeatures with SharedSparkSession
     }
   }
 
+  test("SPARK-44639: Use Java tmp dir instead of configured local dirs") {
+    val conf = SQLConf.get.clone()
+    conf.setConfString(RocksDBConf.ROCKSDB_SQL_CONF_NAME_PREFIX + "." +
+      RocksDBConf.FORCE_JAVA_TMP_DIR_CONF_KEY, "true")
+
+    val provider = new RocksDBStateStoreProvider()
+    provider.init(
+      StateStoreId(
+        "/checkpoint",
+        0,
+        0
+      ),
+      new StructType(),
+      new StructType(),
+      0,
+      new StateStoreConf(conf),
+      new Configuration()
+    )
+
+    assert(provider.rocksDB.localRootDir.getParent() == System.getProperty("java.io.tmpdir"))
+  }
+
   test("Rocks DB task completion listener does not double unlock acquireThread") {
     // This test verifies that a thread that locks then unlocks the db and then
     // fires a completion listener (Thread 1) does not unlock the lock validly
