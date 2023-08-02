@@ -2147,6 +2147,32 @@ Here are the configs regarding to RocksDB instance of the state store provider:
     <td>The maximum number of MemTables in RocksDB, both active and immutable. Value of -1 means that RocksDB internal default values will be used</td>
     <td>-1</td>
   </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.boundedMemoryUsage</td>
+    <td>Whether total memory usage for RocksDB state store instances on a single node is bounded.</td>
+    <td>false</td>
+  </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.maxMemoryUsageMB</td>
+    <td>Total memory limit in MB for RocksDB state store instances on a single node.</td>
+    <td>500</td>
+  </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.writeBufferCacheRatio</td>
+    <td>Total memory to be occupied by write buffers as a fraction of memory allocated across all RocksDB instances on a single node using maxMemoryUsageMB.</td>
+    <td>0.5</td>
+  </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.highPriorityPoolRatio</td>
+    <td>Total memory to be occupied by blocks in high priority pool as a fraction of memory allocated across all RocksDB instances on a single node using maxMemoryUsageMB.</td>
+    <td>0.1</td>
+  </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.forceJavaTmpDir</td>
+    <td>Whether to force `java.io.tmpdir` to be used to store local RocksDB data, otherwise uses the default deployment-specific
+    local temporary directory lookup (which may fall back to `java.io.tmpdir`).</td>
+    <td>false</td>
+  </tr>
 </table>
 
 ##### Performance-aspect considerations
