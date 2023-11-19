@@ -47,9 +47,9 @@ variables:
 build-2.12:
   extends: .build
   variables:
-    SCALA_VERSION: 2.12
+    SCALA_VERSION: "2.12"
 
 build-2.13:
   extends: .build
   variables:
-    SCALA_VERSION: 2.13
+    SCALA_VERSION: "2.13"
