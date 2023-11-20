@@ -37,7 +37,7 @@ variables:
     - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Phadoop-provided -Pyarn -Phadoop-cloud -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
   artifacts:
     paths:
-      - spark-$SPARK_VERSION-bin-$BUILD_NAME.tgz
+      - spark-$SPARK_VERSION-bin-$BUILD_NAME-$SCALA_VERSION.tgz
     expire_in: 1 day
   cache:
     key: maven
