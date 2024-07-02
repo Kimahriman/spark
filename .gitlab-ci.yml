@@ -34,7 +34,7 @@ variables:
     - apt-get update
     - apt-get install -y curl git python3 python3-pip openjdk-8-jdk-headless
     - ./dev/change-scala-version.sh $SCALA_VERSION
-    - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Phadoop-provided -Pyarn -Pconnect -Phadoop-cloud -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
+    - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Phadoop-provided -Pyarn -Phadoop-cloud -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
   artifacts:
     paths:
       - spark-$SPARK_VERSION-bin-$BUILD_NAME-$SCALA_VERSION.tgz
