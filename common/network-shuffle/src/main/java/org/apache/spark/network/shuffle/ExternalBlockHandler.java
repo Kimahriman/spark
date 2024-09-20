@@ -363,6 +363,8 @@ public class ExternalBlockHandler extends RpcHandler
       });
       allMetrics.put("registeredExecutorsSize",
                      (Gauge<Integer>) () -> blockManager.getRegisteredExecutorsSize());
+      allMetrics.put("chunksBeingTransferred",
+                     (Gauge<Long>) () -> streamManager.chunksBeingTransferred());
       allMetrics.put("numActiveConnections", activeConnections);
       allMetrics.put("numCaughtExceptions", caughtExceptions);
     }

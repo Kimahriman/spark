@@ -1082,6 +1082,7 @@ abstract class YarnShuffleServiceSuite extends SparkFunSuite with Matchers {
       "blockTransferMessageRate",
       "blockTransferRateBytes",
       "blockTransferAvgSize_1min",
+      "chunksBeingTransferred",
       "numActiveConnections",
       "numCaughtExceptions",
       "numRegisteredConnections",
