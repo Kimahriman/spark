@@ -42,6 +42,7 @@ trait FlatMapGroupsInPythonExec extends SparkPlan with UnaryExecNode with Python
 
   private val sessionLocalTimeZone = conf.sessionLocalTimeZone
   private val largeVarTypes = conf.arrowUseLargeVarTypes
+  private val arrowMaxRecordsPerBatch = conf.arrowMaxRecordsPerBatch
   private val pythonRunnerConf = ArrowPythonRunner.getPythonRunnerConfMap(conf)
   private val pythonFunction = func.asInstanceOf[PythonUDF].func
   private val chainedFunc = Seq(ChainedPythonFunctions(Seq(pythonFunction)))
@@ -80,13 +81,14 @@ trait FlatMapGroupsInPythonExec extends SparkPlan with UnaryExecNode with Python
 
       val data = groupedData(iter, dedupAttributes)
 
-      val runner = new ArrowPythonRunner(
+      val runner = new GroupedArrowPythonRunner(
         chainedFunc,
         pythonEvalType,
         Array(argOffsets),
         groupedSchema(dedupAttributes),
         sessionLocalTimeZone,
         largeVarTypes,
+        arrowMaxRecordsPerBatch,
         pythonRunnerConf,
         pythonMetrics,
         jobArtifactUUID)
