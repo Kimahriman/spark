@@ -1898,6 +1898,11 @@ Here are the configs regarding to RocksDB instance of the state store provider:
     <td>Compression type used in RocksDB. The string is converted RocksDB compression type through RocksDB Java API getCompressionType(). </td>
     <td>lz4</td>
   </tr>
+  <tr>
+    <td>spark.sql.streaming.stateStore.rocksdb.logLevel</td>
+    <td>Log level for native RocksDB logging. By default uses the Spark log level. </td>
+    <td></td>
+  </tr>
 </table>
 
 ##### RocksDB State Store Memory Management

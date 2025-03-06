@@ -1490,10 +1490,13 @@ class RocksDB(
       }
     }
 
-    var dbLogLevel = InfoLogLevel.ERROR_LEVEL
-    if (log.isWarnEnabled) dbLogLevel = InfoLogLevel.WARN_LEVEL
-    if (log.isInfoEnabled) dbLogLevel = InfoLogLevel.INFO_LEVEL
-    if (log.isDebugEnabled) dbLogLevel = InfoLogLevel.DEBUG_LEVEL
+    val dbLogLevel = conf.logLevel.getOrElse {
+      if (log.isDebugEnabled) InfoLogLevel.DEBUG_LEVEL
+      else if (log.isInfoEnabled) InfoLogLevel.INFO_LEVEL
+      else if (log.isWarnEnabled) InfoLogLevel.WARN_LEVEL
+      else InfoLogLevel.ERROR_LEVEL
+    }
+
     dbLogger.setInfoLogLevel(dbLogLevel)
     // The log level set in dbLogger is effective and the one to dbOptions isn't applied to
     // customized logger. We still set it as it might show up in RocksDB config file or logging.
@@ -1713,7 +1716,8 @@ case class RocksDBConf(
     highPriorityPoolRatio: Double,
     compressionCodec: String,
     allowFAllocate: Boolean,
-    compression: String)
+    compression: String,
+    logLevel: Option[InfoLogLevel])
 
 object RocksDBConf {
   /** Common prefix of all confs in SQLConf that affects RocksDB */
@@ -1808,6 +1812,9 @@ object RocksDBConf {
   val COMPRESSION_KEY = "compression"
   private val COMPRESSION_CONF = SQLConfEntry(COMPRESSION_KEY, "lz4")
 
+  val LOG_LEVEL_KEY = "logLevel"
+  private val LOG_LEVEL_CONF = SQLConfEntry(LOG_LEVEL_KEY, "")
+
   def apply(storeConf: StateStoreConf): RocksDBConf = {
     val sqlConfs = CaseInsensitiveMap[String](storeConf.sqlConfs)
     val extraConfs = CaseInsensitiveMap[String](storeConf.extraOptions)
@@ -1875,6 +1882,18 @@ object RocksDBConf {
       }
     }
 
+    def getLogLevelConf(conf: ConfEntry): Option[InfoLogLevel] = {
+      getConfigMap(conf).getOrElse(conf.fullName, conf.default) match {
+        case "error" => Some(InfoLogLevel.ERROR_LEVEL)
+        case "warn" => Some(InfoLogLevel.WARN_LEVEL)
+        case "info" => Some(InfoLogLevel.INFO_LEVEL)
+        case "debug" => Some(InfoLogLevel.DEBUG_LEVEL)
+        case "" => None
+        case logLevel => throw new IllegalArgumentException(
+          s"Invalid value for '$logLevel', must be one of 'error', 'warn', 'info', or 'debug'")
+      }
+    }
+
     RocksDBConf(
       storeConf.minVersionsToRetain,
       storeConf.minVersionsToDelete,
@@ -1896,7 +1915,8 @@ object RocksDBConf {
       getRatioConf(HIGH_PRIORITY_POOL_RATIO_CONF),
       storeConf.compressionCodec,
       getBooleanConf(ALLOW_FALLOCATE_CONF),
-      getStringConf(COMPRESSION_CONF))
+      getStringConf(COMPRESSION_CONF),
+      getLogLevelConf(LOG_LEVEL_CONF))
   }
 
   def apply(): RocksDBConf = apply(new StateStoreConf())
