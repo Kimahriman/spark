@@ -210,9 +210,42 @@ class EquivalentExpressions(
     }
   }
 
+  private def lambdasForExpression(expr: Expression): AttributeSet = {
+    val lambdaVars = expr.collect {
+      case n: NamedLambdaVariable => n
+    }
+    val lambdaFunctionVars = expr.collect {
+      case f: LambdaFunction => f.arguments
+    }.flatten
+    AttributeSet(lambdaVars) -- AttributeSet(lambdaFunctionVars)
+  }
+
   // Exposed for testing.
-  private[sql] def getAllExprStates(count: Int = 0): Seq[ExpressionStats] = {
-    equivalenceMap.filter(_._2.useCount > count).toSeq.sortBy(_._1.height).map(_._2)
+  private[sql] def getAllExprStates(
+      count: Int = 0,
+      newLambdaVars: AttributeSet = AttributeSet.empty,
+      availableLambdaVars: AttributeSet = AttributeSet.empty
+    ): Seq[ExpressionStats] = {
+    equivalenceMap
+      .filter(_._2.useCount > count)
+      .filter { e =>
+        val exprLambdas = lambdasForExpression(e._2.expr)
+        if (exprLambdas.isEmpty) {
+          // Expression doesn't contain lambda variables, so only return it if we are
+          // not looking for lambda functions
+          newLambdaVars.isEmpty
+        } else {
+          // We want all expressions involving at least one new lambda variable and
+          // where all of it's lambda variables are currently available. This ensures
+          // we return a lambda expression exactly once regardless of the nesting of
+          // various lambda functions
+          newLambdaVars.exists(exprLambdas.contains) &&
+            exprLambdas.forall(availableLambdaVars.contains)
+        }
+      }
+      .toSeq
+      .sortBy(_._1.height)
+      .map(_._2)
   }
 
   /**
@@ -220,6 +253,16 @@ class EquivalentExpressions(
    */
   def getCommonSubexpressions: Seq[Expression] = {
     getAllExprStates(1).map(_.expr)
+  }
+
+  /**
+   * Returns a sequence of expressions that more than one equivalent expressions.
+   */
+  def getLambdaCommonSubexpressions(
+      newLambdaVars: Seq[NamedLambdaVariable],
+      availableLambdaVars: Seq[NamedLambdaVariable]): Seq[Expression] = {
+    getAllExprStates(1, AttributeSet(newLambdaVars), AttributeSet(availableLambdaVars))
+      .map(_.expr)
   }
 
   /**

@@ -506,6 +506,43 @@ class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHel
     equivalence1.addExprTree(caseWhenExpr1)
     assert(equivalence1.getCommonSubexpressions.size == 1)
   }
+
+  test("Subexpression elimination for higher order functions") {
+    val arr1 = Literal(Array(1, 2, 3))
+    val arr2 = Literal(Array(2, 3, 4))
+    val arr3 = Literal(Array(3, 4, 5))
+    val x = NamedLambdaVariable("x", IntegerType, true)
+    val y = NamedLambdaVariable("y", IntegerType, true)
+    val z = NamedLambdaVariable("z", IntegerType, true)
+
+    val add1 = Add(x, y)
+    val add2 = Add(z, z)
+    val transform1 = ArrayTransform(arr1, LambdaFunction(Multiply(add1, add1), Seq(y)))
+    val transform2 = ArrayTransform(arr2, LambdaFunction(transform1, Seq(x)))
+    val transform3 = ArrayTransform(arr3, LambdaFunction(add2, Seq(z)))
+
+    val equivalence = new EquivalentExpressions
+    equivalence.addExprTree(transform2)
+    equivalence.addExprTree(transform3)
+    // No subexpressions that don't reference a lambda variable
+    assert(equivalence.getCommonSubexpressions.size == 0)
+    // `x` is a newly defined lambda variable, and `y` was already in scope,
+    // so add1 is a subexpression
+    var subexpressions = equivalence.getLambdaCommonSubexpressions(Seq(x), Seq(x, y))
+    assert(subexpressions.size == 1)
+    assert(subexpressions.head == add1)
+
+    // Same except `y` was the newly defined lambda
+    subexpressions = equivalence.getLambdaCommonSubexpressions(Seq(y), Seq(x, y))
+    assert(subexpressions.size == 1)
+    assert(subexpressions.head == add1)
+
+    // `y` is not defined
+    assert(equivalence.getLambdaCommonSubexpressions(Seq(x), Seq(x)).size == 0)
+
+    // `x` and `y` were already defined earlier so we already included the subexpression
+    assert(equivalence.getLambdaCommonSubexpressions(Seq(z), Seq(x, y, z)).size == 0)
+  }
 }
 
 case class CodegenFallbackExpression(child: Expression)

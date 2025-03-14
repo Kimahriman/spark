@@ -177,11 +177,11 @@ class CodegenContext extends Logging {
   /**
    * Holding a map of current lambda variables.
    */
-  var currentLambdaVars: mutable.Map[Long, ExprCode] = mutable.HashMap.empty
+  var currentLambdaVars: mutable.Map[Long, (NamedLambdaVariable, ExprCode)] = mutable.HashMap.empty
 
-  def withLambdaVars(
+  def withLambdaVars[T](
       namedLambdas: Seq[NamedLambdaVariable],
-      f: Seq[ExprCode] => ExprCode): ExprCode = {
+      f: (Seq[ExprCode], String) => T): T = {
     val lambdaVars = namedLambdas.map { lambda =>
       val id = lambda.exprId.id
       if (currentLambdaVars.get(id).nonEmpty) {
@@ -194,19 +194,98 @@ class CodegenContext extends Logging {
       }
       val value = addMutableState(javaType(lambda.dataType), "lambdaValue")
       val lambdaVar = ExprCode(isNull, JavaCode.global(value, lambda.dataType))
-      currentLambdaVars.put(id, lambdaVar)
+      currentLambdaVars.put(id, (lambda, lambdaVar))
+
       lambdaVar
     }
 
-    val result = f(lambdaVars)
+    val subexpressions = equivalentExpressions.getLambdaCommonSubexpressions(
+      namedLambdas,
+      currentLambdaVars.values.map(_._1).toSeq
+    )
+
+    // println("Generating lambda subexpressions for")
+    // subexpressions.foreach(println)
+
+    // val subexpressionFunctions = subexpressions.map { expr =>
+    //   val fnName = freshName("lambdaSubExpr")
+    //   val isNull = addMutableState(JAVA_BOOLEAN, "lambdaSubExprIsNull")
+    //   val value = addMutableState(javaType(expr.dataType), "lambdaSubExprValue")
+
+    //   // Generate the code for this expression tree and wrap it in a function.
+    //   val eval = expr.genCode(this)
+    //   val fn =
+    //     s"""
+    //        |private void $fnName(InternalRow $INPUT_ROW) {
+    //        |  ${eval.code}
+    //        |  $isNull = ${eval.isNull};
+    //        |  $value = ${eval.value};
+    //        |}
+    //        """.stripMargin
+
+    //   val subExprCode = s"${addNewFunction(fnName, fn)}($INPUT_ROW);"
+    //   val state = SubExprEliminationState(
+    //     ExprCode(code"$subExprCode",
+    //       JavaCode.isNullGlobal(isNull),
+    //       JavaCode.global(value, expr.dataType)))
+    //   subExprEliminationExprs += ExpressionEquals(expr) -> state
+    //   subExprCode
+    // }
+
+    // val result = f(lambdaVars, subexpressionFunctions.mkString("\n"))
+    val result = f(lambdaVars, "")
     namedLambdas.map(_.exprId.id).foreach(currentLambdaVars.remove)
     result
   }
 
   def getLambdaVar(id: Long): ExprCode = {
-    currentLambdaVars.getOrElse(
-      id,
-      throw QueryExecutionErrors.lambdaVariableNotDefinedError(id))
+    currentLambdaVars.getOrElse(id, {
+      throw QueryExecutionErrors.lambdaVariableNotDefinedError(id)
+    })._2
+  }
+
+  def genLambdaFunction(function: LambdaFunction): ExprCode = {
+    val lambdaEquivalentExpressions = new EquivalentExpressions
+    lambdaEquivalentExpressions.addExprTree(function.function)
+
+    val lambdaSubExprEliminationExprs =
+      new mutable.HashMap[ExpressionEquals, SubExprEliminationState]
+
+    println("genLambda subexpressions")
+    lambdaEquivalentExpressions.getCommonSubexpressions.foreach(println)
+
+    val subexpressionFunctions = lambdaEquivalentExpressions.getCommonSubexpressions.map { expr =>
+      val fnName = freshName("lambdaSubExpr")
+      val isNull = addMutableState(JAVA_BOOLEAN, "lambdaSubExprIsNull")
+      val value = addMutableState(javaType(expr.dataType), "lambdaSubExprValue")
+
+      // Generate the code for this expression tree and wrap it in a function.
+      val eval = expr.genCode(this)
+      val fn =
+        s"""
+           |private void $fnName(InternalRow $INPUT_ROW) {
+           |  ${eval.code}
+           |  $isNull = ${eval.isNull};
+           |  $value = ${eval.value};
+           |}
+           """.stripMargin
+
+      val subExprCode = s"${addNewFunction(fnName, fn)}($INPUT_ROW);"
+      val state = SubExprEliminationState(
+        ExprCode(code"$subExprCode",
+          JavaCode.isNullGlobal(isNull),
+          JavaCode.global(value, expr.dataType)))
+      lambdaSubExprEliminationExprs += ExpressionEquals(expr) -> state
+      subExprCode
+    }
+
+    withSubExprEliminationExprs(subExprEliminationExprs ++ lambdaSubExprEliminationExprs.toMap) {
+      val functionCode = function.function.genCode(this)
+      Seq(functionCode.copy(code = code"""
+        ${subexpressionFunctions.mkString("\n")}
+        ${functionCode.code}
+      """))
+    }.head
   }
 
   /**
