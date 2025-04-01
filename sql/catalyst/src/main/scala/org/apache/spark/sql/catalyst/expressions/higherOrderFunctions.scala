@@ -135,7 +135,17 @@ case class LambdaFunction(
   override def eval(input: InternalRow): Any = function.eval(input)
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    function.genCode(ctx)
+    val subExprCodes = ctx.subexpressionElimination(Seq(function))
+
+    val functionCode = ctx.withSubExprEliminationExprs(subExprCodes.states) {
+      Seq(function.genCode(ctx))
+    }.head
+
+    val subExprEval = ctx.evaluateSubExprEliminationState(subExprCodes.states.values)
+    functionCode.copy(code = code"""
+      |$subExprEval
+      |${functionCode.code}
+    """)
   }
 
   override protected def withNewChildrenInternal(

@@ -1041,7 +1041,7 @@ class CodegenContext extends Logging {
       newSubExprEliminationExprs: Map[ExpressionEquals, SubExprEliminationState])(
       f: => Seq[ExprCode]): Seq[ExprCode] = {
     val oldsubExprEliminationExprs = subExprEliminationExprs
-    subExprEliminationExprs = newSubExprEliminationExprs
+    subExprEliminationExprs = oldsubExprEliminationExprs ++ newSubExprEliminationExprs
 
     val genCodes = f
 
