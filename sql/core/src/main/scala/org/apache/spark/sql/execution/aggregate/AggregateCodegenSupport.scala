@@ -207,14 +207,12 @@ trait AggregateCodegenSupport
     val boundUpdateExprs = updateExprs.map { updateExprsForOneFunc =>
       bindReferences(updateExprsForOneFunc, inputAttrs)
     }
-    val subExprs = if (conf.subexpressionEliminationEnabled) {
-      ctx.subexpressionElimination(boundUpdateExprs.flatten).states
-    } else {
-      Map.empty[ExpressionEquals, SubExprEliminationState]
-    }
-    val effectiveCodes = ctx.subexprFunctionsCode
+    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(boundUpdateExprs.flatten)
+    val effectiveCodes = ctx.evaluateSubExprEliminationState(subExprs.states.values)
     val bufferEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
-      boundUpdateExprsForOneFunc.map(_.genCode(ctx))
+      ctx.withSubExprEliminationExprs(subExprs.states) {
+        boundUpdateExprsForOneFunc.map(_.genCode(ctx))
+      }
     }
 
     val aggNames = functions.map(_.prettyName)
@@ -258,11 +256,11 @@ trait AggregateCodegenSupport
       boundUpdateExprs: Seq[Seq[Expression]],
       aggNames: Seq[String],
       aggCodeBlocks: Seq[Block],
-      subExprs: Map[ExpressionEquals, SubExprEliminationState]): String = {
+      subExprs: SubExprCodes): String = {
     val aggCodes = if (conf.codegenSplitAggregateFunc &&
       aggCodeBlocks.map(_.length).sum > conf.methodSplitThreshold) {
       val maybeSplitCodes = splitAggregateExpressions(
-        ctx, aggNames, boundUpdateExprs, aggCodeBlocks, subExprs)
+        ctx, aggNames, boundUpdateExprs, aggCodeBlocks, subExprs.states)
 
       maybeSplitCodes.getOrElse(aggCodeBlocks.map(_.code))
     } else {
