@@ -1102,7 +1102,9 @@ class CodegenContext extends Logging {
    *      (subexpression -> `SubExprEliminationState`) into the map. So in next subexpression
    *      evaluation, we can look for generated subexpressions and do replacement.
    */
-  def subexpressionElimination(expressions: Seq[Expression]): SubExprCodes = {
+  def subexpressionElimination(
+      expressions: Seq[Expression],
+      variablePrefix: String = ""): SubExprCodes = {
     // Create a clear EquivalentExpressions and SubExprEliminationState mapping
     val equivalentExpressions: EquivalentExpressions = new EquivalentExpressions
     val localSubExprEliminationExprs =
@@ -1113,7 +1115,12 @@ class CodegenContext extends Logging {
 
     // Get all the expressions that appear at least twice and set up the state for subexpression
     // elimination.
+    // 
+    // Filter out any expressions that are already existing subexpressions. This can happen
+    // when finding common subexpressions inside a lambda function, and the common expression
+    // does not reference the lambda variables for that function, but top level attributes.
     val commonExprs = equivalentExpressions.getCommonSubexpressions
+      .filter(e => !subExprEliminationExprs.contains(ExpressionEquals(e)))
 
     val nonSplitCode = {
       val allStates = mutable.ArrayBuffer.empty[SubExprEliminationState]
@@ -1121,14 +1128,14 @@ class CodegenContext extends Logging {
         withSubExprEliminationExprs(localSubExprEliminationExprs.toMap) {
           val eval = expr.genCode(this)
 
-          val value = addMutableState(javaType(expr.dataType), "subExprValue")
+          val value = addMutableState(javaType(expr.dataType), s"${variablePrefix}subExprValue")
 
           val isNullLiteral = eval.isNull match {
             case TrueLiteral | FalseLiteral => true
             case _ => false
           }
           val (isNull, isNullEvalCode) = if (!isNullLiteral) {
-            val v = addMutableState(JAVA_BOOLEAN, "subExprIsNull")
+            val v = addMutableState(JAVA_BOOLEAN, s"${variablePrefix}subExprIsNull")
             (JavaCode.isNullGlobal(v), s"$v = ${eval.isNull};")
           } else {
             (eval.isNull, "")
@@ -1143,7 +1150,7 @@ class CodegenContext extends Logging {
           // Collects other subexpressions from the children.
           val childrenSubExprs = mutable.ArrayBuffer.empty[SubExprEliminationState]
           expr.foreach { e =>
-            subExprEliminationExprs.get(ExpressionEquals(e)) match {
+            localSubExprEliminationExprs.get(ExpressionEquals(e)) match {
               case Some(state) => childrenSubExprs += state
               case _ =>
             }
@@ -1234,7 +1241,7 @@ class CodegenContext extends Logging {
     if (doSubexpressionElimination) {
       val subExprs = subexpressionElimination(cleanedExpressions)
       val generatedExprs = withSubExprEliminationExprs(subExprs.states) {
-    cleanedExpressions.map(e => e.genCode(this))
+        cleanedExpressions.map(e => e.genCode(this))
       }
       val subExprCode = evaluateSubExprEliminationState(subExprs.states.values)
       (generatedExprs, subExprCode)

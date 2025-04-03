@@ -135,7 +135,7 @@ case class LambdaFunction(
   override def eval(input: InternalRow): Any = function.eval(input)
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val subExprCodes = ctx.subexpressionElimination(Seq(function))
+    val subExprCodes = ctx.subexpressionElimination(Seq(function), "lambda_")
 
     val functionCode = ctx.withSubExprEliminationExprs(subExprCodes.states) {
       Seq(function.genCode(ctx))
@@ -143,6 +143,7 @@ case class LambdaFunction(
 
     val subExprEval = ctx.evaluateSubExprEliminationState(subExprCodes.states.values)
     functionCode.copy(code = code"""
+      |// lambda common sub-expressions
       |$subExprEval
       |${functionCode.code}
     """)
