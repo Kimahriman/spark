@@ -3490,6 +3490,35 @@ class DataFrameFunctionsSuite extends QueryTest with SharedSparkSession {
     testArrayOfPrimitiveTypeContainsNull()
   }
 
+  test("transform function - subexpression elimination") {
+    val df = spark.read.json(Seq(
+      """
+      {
+        "outer": {
+          "inner": {
+            "a": 1,
+            "b": 2,
+            "c": 3
+          }
+        },
+        "arr": [
+          1,
+          2,
+          3
+        ]
+      }
+      """).toDS())
+
+    val result = df.select(
+      col("outer.inner.b"),
+      col("outer.inner.c"),
+      transform(col("arr"), x => x + col("outer.inner.a") + col("outer.inner.a"))
+    )
+    result.explain("codegen")
+
+    checkAnswer(result, Seq(Row(2, 3, Seq(3, 4, 5))))
+  }
+
   test("transform function - array for non-primitive type") {
     val df = Seq(
       Seq("c", "a", "b"),
