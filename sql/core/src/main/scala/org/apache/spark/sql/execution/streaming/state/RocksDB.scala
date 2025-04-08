@@ -636,8 +636,8 @@ class RocksDB(
         // (e.g. dumps non-warning stuff like stats)
         val loggingFunc: ( => String) => Unit = infoLogLevel match {
           case InfoLogLevel.FATAL_LEVEL | InfoLogLevel.ERROR_LEVEL => logError(_)
-          case InfoLogLevel.WARN_LEVEL | InfoLogLevel.INFO_LEVEL => logInfo(_)
-          case InfoLogLevel.DEBUG_LEVEL => logDebug(_)
+          case InfoLogLevel.WARN_LEVEL => logInfo(_)
+          case InfoLogLevel.INFO_LEVEL | InfoLogLevel.DEBUG_LEVEL => logDebug(_)
           case _ => logTrace(_)
         }
         loggingFunc(s"[NativeRocksDB-${infoLogLevel.getValue}] $logMsg")
