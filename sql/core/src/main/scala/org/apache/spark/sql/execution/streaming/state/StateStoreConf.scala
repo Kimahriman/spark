@@ -69,6 +69,9 @@ class StateStoreConf(
   /** The interval of maintenance tasks. */
   val maintenanceInterval = sqlConf.streamingMaintenanceInterval
 
+  /** Whether to unload the store on task completion. */
+  val unloadOnCommit = sqlConf.stateStoreUnloadOnCommit
+
   /**
    * Additional configurations related to state store. This will capture all configs in
    * SQLConf that start with `spark.sql.streaming.stateStore.`
