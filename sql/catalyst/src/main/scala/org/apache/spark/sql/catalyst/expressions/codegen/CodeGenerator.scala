@@ -1115,7 +1115,7 @@ class CodegenContext extends Logging {
 
     // Get all the expressions that appear at least twice and set up the state for subexpression
     // elimination.
-    // 
+    //
     // Filter out any expressions that are already existing subexpressions. This can happen
     // when finding common subexpressions inside a lambda function, and the common expression
     // does not reference the lambda variables for that function, but top level attributes.

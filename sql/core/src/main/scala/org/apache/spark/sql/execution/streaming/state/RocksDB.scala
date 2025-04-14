@@ -33,8 +33,9 @@ import org.json4s.jackson.Serialization
 import org.rocksdb.{RocksDB => NativeRocksDB, _}
 import org.rocksdb.TickerType._
 
-import org.apache.spark.TaskContext
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
+import org.apache.spark.internal.config.EXECUTOR_CORES
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.util.{NextIterator, Utils}
 
@@ -94,7 +95,7 @@ class RocksDB(
   if (conf.boundedMemoryUsage) {
     tableFormatConfig.setCacheIndexAndFilterBlocks(true)
     tableFormatConfig.setCacheIndexAndFilterBlocksWithHighPriority(true)
-    tableFormatConfig.setPinL0FilterAndIndexBlocksInCache(true)
+    tableFormatConfig.setPinL0FilterAndIndexBlocksInCache(false)
   }
 
   private val columnFamilyOptions = new ColumnFamilyOptions()
@@ -115,6 +116,7 @@ class RocksDB(
   dbOptions.setCreateIfMissing(true)
   dbOptions.setTableFormatConfig(tableFormatConfig)
   dbOptions.setMaxOpenFiles(conf.maxOpenFiles)
+  dbOptions.setIncreaseParallelism(conf.backgroundThreads)
 
   if (conf.boundedMemoryUsage) {
     dbOptions.setWriteBufferManager(writeBufferManager)
@@ -165,6 +167,8 @@ class RocksDB(
         if (lastSnapshotVersion > latestSnapshotVersion) {
           // discard any newer snapshots
           lastSnapshotVersion = 0L
+        } else {
+          lastSnapshotVersion = latestSnapshotVersion
         }
         openDB()
 
@@ -712,7 +716,8 @@ case class RocksDBConf(
     writeBufferCacheRatio: Double,
     highPriorityPoolRatio: Double,
     compressionCodec: String,
-    forceJavaTmpDir: Boolean)
+    forceJavaTmpDir: Boolean,
+    backgroundThreads: Int)
 
 object RocksDBConf {
   /** Common prefix of all confs in SQLConf that affects RocksDB */
@@ -878,7 +883,8 @@ object RocksDBConf {
       getRatioConf(WRITE_BUFFER_CACHE_RATIO_CONF),
       getRatioConf(HIGH_PRIORITY_POOL_RATIO_CONF),
       storeConf.compressionCodec,
-      getBooleanConf(FORCE_JAVA_TMP_DIR_CONF))
+      getBooleanConf(FORCE_JAVA_TMP_DIR_CONF),
+      SparkEnv.get.conf.get(EXECUTOR_CORES))
   }
 
   def apply(): RocksDBConf = apply(new StateStoreConf())
