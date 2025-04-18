@@ -1965,6 +1965,16 @@ object SQLConf {
       .stringConf
       .createWithDefault("lz4")
 
+  val STATE_STORE_UNLOAD_ON_COMMIT =
+    buildConf("spark.sql.streaming.stateStore.unloadOnCommit")
+      .internal()
+      .doc("When true, Spark will synchronously run maintenance and then close each StateStore " +
+        "instance on task completion. This reduce overhead involved in keeping every StateStore " +
+        "loaded indefinitely, at the cost of having to reload each StateStore every batch")
+      .version("3.5.6")
+      .booleanConf
+      .createWithDefault(false)
+
   val CHECKPOINT_RENAMEDFILE_CHECK_ENABLED =
     buildConf("spark.sql.streaming.checkpoint.renamedFileCheck.enabled")
       .doc("When true, Spark will validate if renamed checkpoint file exists.")
@@ -4733,6 +4743,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def streamingMaintenanceInterval: Long = getConf(STREAMING_MAINTENANCE_INTERVAL)
 
   def stateStoreCompressionCodec: String = getConf(STATE_STORE_COMPRESSION_CODEC)
+
+  def stateStoreUnloadOnCommit: Boolean = getConf(STATE_STORE_UNLOAD_ON_COMMIT)
 
   def checkpointRenamedFileCheck: Boolean = getConf(CHECKPOINT_RENAMEDFILE_CHECK_ENABLED)
 

@@ -124,6 +124,13 @@ class StateStoreRDD[T: ClassTag, U: ClassTag](
     val store = StateStore.get(
       storeProviderId, keySchema, valueSchema, numColsPrefixKey, storeVersion,
       storeConf, hadoopConfBroadcast.value.value)
+
+    if (storeConf.unloadOnCommit) {
+      ctxt.addTaskCompletionListener[Unit](_ => {
+        StateStore.doMaintenanceAndUnload(storeProviderId)
+      })
+    }
+
     storeUpdateFunction(store, inputIter)
   }
 }
