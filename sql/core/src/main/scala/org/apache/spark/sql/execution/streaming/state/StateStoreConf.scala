@@ -92,6 +92,9 @@ class StateStoreConf(
   val enableStateStoreCheckpointIds =
     StatefulOperatorStateInfo.enableStateStoreCheckpointIds(sqlConf)
 
+  /** Whether to unload the store on task completion. */
+  val unloadOnCommit = sqlConf.stateStoreUnloadOnCommit
+
   /**
    * Additional configurations related to state store. This will capture all configs in
    * SQLConf that start with `spark.sql.streaming.stateStore.`
