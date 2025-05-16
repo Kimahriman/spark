@@ -855,8 +855,7 @@ class CodegenContext extends Logging {
    *
    * Note that different from `splitExpressions`, we will extract the current inputs of this
    * context and pass them to the generated functions. The input is `INPUT_ROW` for normal codegen
-   * path, and `currentVars` for whole stage codegen path. Whole stage codegen path is not
-   * supported yet.
+   * path, and `currentVars` for whole stage codegen path.
    *
    * @param expressions the codes to evaluate expressions.
    * @param funcName the split function name base.
@@ -869,22 +868,70 @@ class CodegenContext extends Logging {
   def splitExpressionsWithCurrentInputs(
       expressions: Seq[String],
       funcName: String = "apply",
+      inputExpressions: Option[Seq[Expression]] = None,
       extraArguments: Seq[(String, String)] = Nil,
       returnType: String = "void",
       makeSplitFunction: String => String = identity,
       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
-    // TODO: support whole stage codegen
-    if (INPUT_ROW == null || currentVars != null) {
-      expressions.mkString("\n")
-    } else {
-      splitExpressions(
-        expressions,
-        funcName,
-        ("InternalRow", INPUT_ROW) +: extraArguments,
-        returnType,
-        makeSplitFunction,
-        foldFunctions)
+
+    if (currentVars != null && inputExpressions.isEmpty) {
+      // We don't have the information we need to split in whole-stage
+      return expressions.mkString("\n")
     }
+
+    val argSet = mutable.Set[VariableValue]()
+    if (INPUT_ROW != null) {
+      argSet += JavaCode.variable(INPUT_ROW, classOf[InternalRow])
+    }
+
+    // Collects local variables from a given `expr` tree
+    val collectLocalVariable = (ev: ExprValue) => ev match {
+      case vv: VariableValue => argSet += vv
+      case _ =>
+    }
+
+    if (currentVars != null) {
+      inputExpressions.foreach { _.foreach { expr =>
+        val stack = mutable.Stack[Expression](expr)
+        while (stack.nonEmpty) {
+          stack.pop() match {
+            case ref: BoundReference if currentVars(ref.ordinal) != null =>
+              val exprCode = currentVars(ref.ordinal)
+              // We can only split if all input vars have already been evaluated. Otherwise
+              // there's no way to know all the required deferred references are still in
+              // scope.
+              if (exprCode.code != EmptyBlock) {
+                return expressions.mkString("\n")
+              }
+              collectLocalVariable(exprCode.value)
+              collectLocalVariable(exprCode.isNull)
+
+            case e =>
+              subExprEliminationExprs.get(ExpressionEquals(e)) match {
+                case Some(state) =>
+                  collectLocalVariable(state.eval.value)
+                  collectLocalVariable(state.eval.isNull)
+                case None =>
+                  stack.pushAll(e.children)
+              }
+          }
+        }
+      }}
+    }
+
+    val arguments = argSet.map { variable =>
+      CodeGenerator.typeName(variable.javaType) -> variable.variableName
+    }
+
+    arguments ++= extraArguments
+
+    splitExpressions(
+      expressions,
+      funcName,
+      arguments.toSeq,
+      returnType,
+      makeSplitFunction,
+      foldFunctions)
   }
 
   /**

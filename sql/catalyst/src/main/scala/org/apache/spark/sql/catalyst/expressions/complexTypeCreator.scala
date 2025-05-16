@@ -165,6 +165,7 @@ private [sql] object GenArrayData {
     val assignmentString = ctx.splitExpressionsWithCurrentInputs(
       expressions = assignments,
       funcName = "apply",
+      inputExpressions = Some(elementsExpr),
       extraArguments = ("ArrayData", arrayDataName) :: Nil)
 
     (initialization, assignmentString, arrayDataName)
@@ -521,6 +522,7 @@ case class CreateNamedStruct(children: Seq[Expression]) extends Expression with 
     val valuesCode = ctx.splitExpressionsWithCurrentInputs(
       expressions = valCodes,
       funcName = "createNamedStruct",
+      inputExpressions = Some(valExprs),
       extraArguments = "Object[]" -> values :: Nil)
 
     ev.copy(code =

@@ -566,6 +566,7 @@ case class In(value: Expression, list: Seq[Expression]) extends Predicate {
       val codes = ctx.splitExpressionsWithCurrentInputs(
         expressions = listCode,
         funcName = "valueIn",
+        inputExpressions = Some(list),
         extraArguments = (javaDataType, valueArg) :: (CodeGenerator.JAVA_BYTE, tmpResult) :: Nil,
         returnType = CodeGenerator.JAVA_BYTE,
         makeSplitFunction = body =>

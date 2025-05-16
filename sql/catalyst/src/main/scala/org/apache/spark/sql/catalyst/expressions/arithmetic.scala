@@ -1239,6 +1239,7 @@ case class Least(children: Seq[Expression]) extends ComplexTypeMergingExpression
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = evals,
       funcName = "least",
+      inputExpressions = Some(children),
       extraArguments = Seq(resultType -> ev.value),
       returnType = resultType,
       makeSplitFunction = body =>
@@ -1327,6 +1328,7 @@ case class Greatest(children: Seq[Expression]) extends ComplexTypeMergingExpress
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = evals,
       funcName = "greatest",
+      inputExpressions = Some(children),
       extraArguments = Seq(resultType -> ev.value),
       returnType = resultType,
       makeSplitFunction = body =>
