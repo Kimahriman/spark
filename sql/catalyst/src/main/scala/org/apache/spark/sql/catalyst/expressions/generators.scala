@@ -265,7 +265,7 @@ case class Stack(children: Seq[Expression]) extends Generator {
       }
       val eval = CreateStruct(fields).genCode(ctx)
       s"${eval.code}\n$rowData[$row] = ${eval.value};"
-    })
+    }, values)
 
     // Create the collection.
     val wrapperClass = classOf[mutable.ArraySeq[_]].getName

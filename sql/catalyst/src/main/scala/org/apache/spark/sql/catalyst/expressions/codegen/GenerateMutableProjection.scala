@@ -94,8 +94,10 @@ object GenerateMutableProjection extends CodeGenerator[Seq[Expression], MutableP
     // Evaluate all the subexpressions.
     val evalSubexpr = ctx.subexprFunctionsCode
 
-    val allProjections = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._1))
-    val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
+    val allProjections = ctx.splitExpressionsWithCurrentInputs(
+      projectionCodes.map(_._1), expressions)
+    val allUpdates = ctx.splitExpressionsWithCurrentInputs(
+      projectionCodes.map(_._2), expressions)
 
     val codeBody = s"""
       public java.lang.Object generate(Object[] references) {

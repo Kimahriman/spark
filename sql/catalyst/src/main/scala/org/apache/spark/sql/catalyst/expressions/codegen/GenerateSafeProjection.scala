@@ -165,7 +165,7 @@ object GenerateSafeProjection extends CodeGenerator[Seq[Expression], Projection]
             }
           """
     }
-    val allExpressions = ctx.splitExpressionsWithCurrentInputs(expressionCodes)
+    val allExpressions = ctx.splitExpressionsWithCurrentInputs(expressionCodes, expressions)
 
     val codeBody = s"""
       public java.lang.Object generate(Object[] references) {

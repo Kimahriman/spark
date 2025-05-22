@@ -1918,7 +1918,7 @@ class DataFrameSuite extends QueryTest
   }
 
   test("SPARK-22520: support code generation for large CaseWhen") {
-    val N = 30
+    val N = 1000
     var expr1 = when($"id" === lit(0), 0)
     var expr2 = when($"id" === lit(0), 10)
     (1 to N).foreach { i =>

@@ -364,6 +364,7 @@ case class ArraysZip(children: Seq[Expression], names: Seq[Expression])
     val splittedGetValuesAndCardinalities = ctx.splitExpressionsWithCurrentInputs(
       expressions = getValuesAndCardinalities,
       funcName = "getValuesAndCardinalities",
+      inputExpressions = children,
       returnType = "int",
       makeSplitFunction = body =>
         s"""
@@ -764,6 +765,7 @@ case class MapConcat(children: Seq[Expression])
     val prepareMaps = ctx.splitExpressionsWithCurrentInputs(
       expressions = assignments,
       funcName = "getMapConcatInputs",
+      inputExpressions = children,
       extraArguments = ("MapData[]", argsName) :: ("boolean", hasNullName) :: Nil,
       returnType = "boolean",
       makeSplitFunction = body =>
@@ -2960,6 +2962,7 @@ case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpressio
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = inputs,
       funcName = "valueConcat",
+      inputExpressions = children,
       extraArguments = (s"$javaType[]", args) :: ("boolean", hasNull) :: Nil,
       returnType = "boolean",
       makeSplitFunction = body =>

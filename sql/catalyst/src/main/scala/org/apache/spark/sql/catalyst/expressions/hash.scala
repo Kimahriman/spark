@@ -330,6 +330,7 @@ abstract class HashExpression[E] extends Expression {
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = childrenHash,
       funcName = "computeHash",
+      inputExpressions = children,
       extraArguments = Seq(hashResultType -> ev.value),
       returnType = hashResultType,
       makeSplitFunction = body =>
@@ -762,6 +763,7 @@ case class HiveHash(children: Seq[Expression]) extends HashExpression[Int] {
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = childrenHash,
       funcName = "computeHash",
+      inputExpressions = children,
       extraArguments = Seq(CodeGenerator.JAVA_INT -> ev.value),
       returnType = CodeGenerator.JAVA_INT,
       makeSplitFunction = body =>

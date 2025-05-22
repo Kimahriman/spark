@@ -334,6 +334,7 @@ case class CaseWhen(
     }
 
     val allConditions = cases ++ elseCode
+    val inputExpressions = branches.map(b => Seq(b._1, b._2)).flatten ++ elseValue
 
     // This generates code like:
     //   caseWhenResultState = caseWhen_1(i);
@@ -356,6 +357,7 @@ case class CaseWhen(
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = allConditions,
       funcName = "caseWhen",
+      inputExpressions = inputExpressions,
       returnType = CodeGenerator.JAVA_BYTE,
       makeSplitFunction = func =>
         s"""

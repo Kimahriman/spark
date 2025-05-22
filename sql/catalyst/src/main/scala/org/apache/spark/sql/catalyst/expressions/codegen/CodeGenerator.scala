@@ -873,8 +873,7 @@ class CodegenContext extends Logging {
    *
    * Note that different from `splitExpressions`, we will extract the current inputs of this
    * context and pass them to the generated functions. The input is `INPUT_ROW` for normal codegen
-   * path, and `currentVars` for whole stage codegen path. Whole stage codegen path is not
-   * supported yet.
+   * path, and `currentVars` for whole stage codegen path.
    *
    * @param expressions the codes to evaluate expressions.
    * @param funcName the split function name base.
@@ -886,22 +885,49 @@ class CodegenContext extends Logging {
    */
   def splitExpressionsWithCurrentInputs(
       expressions: Seq[String],
+      inputExpressions: Seq[Expression],
       funcName: String = "apply",
       extraArguments: Seq[(String, String)] = Nil,
       returnType: String = "void",
       makeSplitFunction: String => String = identity,
       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
-    // TODO: support whole stage codegen
-    if (INPUT_ROW == null || currentVars != null) {
-      expressions.mkString("\n")
-    } else {
+
+    val argSet = mutable.Set[VariableValue]()
+    val exprCodes = inputExpressions.foreach { expr =>
+      val (inputVars, exprCodes) = getLocalInputVariableValues(this, expr, subExprEliminationExprs)
+
+      // If any block has not be evaluated yet we can't split, as we don't know
+      // if all variables needed will be in scope
+      if (exprCodes.exists(_.code != EmptyBlock)) {
+        return expressions.mkString("\n")
+      }
+
+      argSet ++= inputVars
+    }
+
+    var paramLength = CodeGenerator.calculateParamLengthFromExprValues(argSet.toSeq)
+    paramLength += extraArguments.map { arg =>
+      boxedType(arg._1) match {
+        case "Long" | "Double" => 2
+        case _ => 1
+      }
+    }.foldLeft(0)(_ + _)
+
+    if (CodeGenerator.isValidParamLength(paramLength)) {
+      val arguments = argSet.map { variable =>
+        CodeGenerator.typeName(variable.javaType) -> variable.variableName
+      }
+      arguments ++= extraArguments
+
       splitExpressions(
         expressions,
         funcName,
-        ("InternalRow", INPUT_ROW) +: extraArguments,
+        arguments.toSeq,
         returnType,
         makeSplitFunction,
         foldFunctions)
+    } else {
+      expressions.mkString("\n")
     }
   }
 
@@ -1182,7 +1208,13 @@ class CodegenContext extends Logging {
     // subexpressions and evaluate them before subexpressions.
     val (inputVarsForAllFuncs, exprCodesNeedEvaluate) = commonExprs.map { expr =>
       val (inputVars, exprCodes) = getLocalInputVariableValues(this, expr)
-      (inputVars.toSeq, exprCodes.toSeq)
+      val exprCodesNeedEvaluate = exprCodes
+        .map { exprCode =>
+          val copy = exprCode.copy()
+          exprCode.code = EmptyBlock
+          copy
+        }
+      (inputVars.toSeq, exprCodesNeedEvaluate.toSeq)
     }.unzip
 
     val needSplit = nonSplitCode.map(_.eval.code.length).sum > SQLConf.get.methodSplitThreshold
@@ -1926,8 +1958,7 @@ object CodeGenerator extends Logging {
           val exprCode = ctx.currentVars(ref.ordinal)
           // If the referred variable is not evaluated yet.
           if (exprCode.code != EmptyBlock) {
-            exprCodesNeedEvaluate += exprCode.copy()
-            exprCode.code = EmptyBlock
+            exprCodesNeedEvaluate += exprCode
           }
           collectLocalVariable(exprCode.value)
           collectLocalVariable(exprCode.isNull)

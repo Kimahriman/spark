@@ -112,6 +112,7 @@ case class Coalesce(children: Seq[Expression])
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = evals,
       funcName = "coalesce",
+      inputExpressions = children,
       returnType = resultType,
       makeSplitFunction = func =>
         s"""
@@ -525,6 +526,7 @@ case class AtLeastNNonNulls(n: Int, children: Seq[Expression]) extends Predicate
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = evals,
       funcName = "atLeastNNonNulls",
+      inputExpressions = children,
       extraArguments = (CodeGenerator.JAVA_INT, nonnull) :: Nil,
       returnType = CodeGenerator.JAVA_INT,
       makeSplitFunction = body =>

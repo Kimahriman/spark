@@ -141,6 +141,7 @@ case class ConcatWs(children: Seq[Expression])
       val codes = ctx.splitExpressionsWithCurrentInputs(
           expressions = inputs,
           funcName = "valueConcatWs",
+          inputExpressions = children.tail,
           extraArguments = ("UTF8String[]", args) :: Nil)
       ev.copy(code"""
         UTF8String[] $args = new UTF8String[$numArgs];
@@ -209,12 +210,14 @@ case class ConcatWs(children: Seq[Expression])
       val argBuilds = ctx.splitExpressionsWithCurrentInputs(
         expressions = argBuild,
         funcName = "initializeArgsArrays",
+        inputExpressions = children.tail,
         extraArguments = ("boolean []", isNullArgs) :: ("Object []", valueArgs) :: Nil
       )
 
       val varargCounts = ctx.splitExpressionsWithCurrentInputs(
         expressions = varargCount,
         funcName = "varargCountsConcatWs",
+        inputExpressions = children.tail,
         extraArguments = ("boolean []", isNullArgs) :: ("Object []", valueArgs) :: Nil,
         returnType = "int",
         makeSplitFunction = body =>
@@ -228,6 +231,7 @@ case class ConcatWs(children: Seq[Expression])
       val varargBuilds = ctx.splitExpressionsWithCurrentInputs(
         expressions = varargBuild,
         funcName = "varargBuildsConcatWs",
+        inputExpressions = children.tail,
         extraArguments = ("UTF8String []", array) :: ("int", idxVararg) ::
           ("boolean []", isNullArgs) :: ("Object []", valueArgs) :: Nil,
         returnType = "int",
@@ -370,6 +374,7 @@ case class Elt(
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = assignInputValue.toImmutableArraySeq,
       funcName = "eltFunc",
+      inputExpressions = inputExprs.toIndexedSeq,
       extraArguments = ("int", indexVal) :: Nil,
       returnType = CodeGenerator.JAVA_BOOLEAN,
       makeSplitFunction = body =>
@@ -2102,6 +2107,7 @@ case class FormatString(children: Expression*) extends Expression with ImplicitC
     val argListCodes = ctx.splitExpressionsWithCurrentInputs(
       expressions = argListCode,
       funcName = "valueFormatString",
+      inputExpressions = children.tail,
       extraArguments = ("Object[]", argList) :: Nil)
 
     val form = ctx.freshName("formatter")
