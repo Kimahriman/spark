@@ -42,7 +42,7 @@ import org.apache.spark.io.CompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection
 import org.apache.spark.sql.catalyst.util.quietly
-import org.apache.spark.sql.execution.streaming.{CheckpointFileManager, CreateAtomicTestManager, FileContextBasedCheckpointFileManager, FileSystemBasedCheckpointFileManager}
+import org.apache.spark.sql.execution.streaming.{CheckpointFileManager, CreateAtomicTestManager, FileContextBasedCheckpointFileManager, FileSystemBasedCheckpointFileManager, StreamExecution}
 import org.apache.spark.sql.execution.streaming.CheckpointFileManager.{CancellableFSDataOutputStream, RenameBasedFSDataOutputStream}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.STREAMING_CHECKPOINT_FILE_MANAGER_CLASS
@@ -3464,6 +3464,8 @@ class RocksDBSuite extends AlsoTestWithRocksDBFeatures with SharedSparkSession
   }
 
   test("SPARK-44639: Use Java tmp dir instead of configured local dirs on Yarn") {
+    val conf = new Configuration()
+    conf.set(StreamExecution.RUN_ID_KEY, UUID.randomUUID().toString)
     val provider = new RocksDBStateStoreProvider()
     provider.sparkConf = new SparkConfWithEnv(Map("CONTAINER_ID" -> "1"))
     provider.init(
@@ -3477,7 +3479,7 @@ class RocksDBSuite extends AlsoTestWithRocksDBFeatures with SharedSparkSession
       NoPrefixKeyStateEncoderSpec(new StructType()),
       false,
       new StateStoreConf(sqlConf),
-      new Configuration()
+      conf
     )
 
     assert(provider.rocksDB.localRootDir.getParent() == System.getProperty("java.io.tmpdir"))
