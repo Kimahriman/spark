@@ -20,7 +20,7 @@ stages:
   - build
 
 variables:
-  BUILD_NAME: backports-rc6
+  BUILD_NAME: backports
   HADOOP_VERSION: "3.4.1"
   SPARK_VERSION: "4.0.0"
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
