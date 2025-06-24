@@ -345,8 +345,7 @@ case class FilterExec(condition: Expression, child: SparkPlan)
         val inputVarsEvalCode = evaluateRequiredVariables(
           child.output, input, otherPredInputAttrs)
 
-        val subExprs =
-          ctx.subexpressionEliminationForWholeStageCodegen(otherPredsEquivalentExpressions)
+        val subExprs = ctx.subexpressionElimination(otherPredsEquivalentExpressions, "")
 
         // Group CSE states by the index of the first otherPred that references them.
         // `evaluateSubExprEliminationState` recursively emits each state's children
