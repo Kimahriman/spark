@@ -21,8 +21,7 @@ stages:
 
 variables:
   BUILD_NAME: backports
-  HADOOP_VERSION: "3.4.1"
-  SPARK_VERSION: "4.0.0"
+  HADOOP_VERSION: "3.4.2"
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
 
 .build:
@@ -37,7 +36,7 @@ variables:
     - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Phadoop-provided -Pyarn -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
   artifacts:
     paths:
-      - spark-$SPARK_VERSION-bin-$BUILD_NAME-$SCALA_VERSION.tgz
+      - spark-*-bin-$BUILD_NAME-$SCALA_VERSION.tgz
     expire_in: 1 day
   cache:
     key: maven
