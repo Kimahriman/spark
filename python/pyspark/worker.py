@@ -53,10 +53,11 @@ from pyspark.sql.functions import SkipRestOfInputTableException
 from pyspark.sql.pandas.serializers import (
     ArrowStreamPandasUDFSerializer,
     ArrowStreamPandasUDTFSerializer,
+    GroupPandasUDFSerializer,
+    GroupArrowUDFSerializer,
     CogroupArrowUDFSerializer,
     CogroupPandasUDFSerializer,
     ArrowStreamUDFSerializer,
-    ArrowStreamGroupUDFSerializer,
     ApplyInPandasWithStateSerializer,
     TransformWithStateInPandasSerializer,
     TransformWithStateInPandasInitStateSerializer,
@@ -1557,7 +1558,11 @@ def read_udfs(pickleSer, infile, eval_type):
         )
         _assign_cols_by_name = assign_cols_by_name(runner_conf)
 
-        if eval_type == PythonEvalType.SQL_COGROUPED_MAP_ARROW_UDF:
+        if eval_type == PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF:
+            ser = GroupArrowUDFSerializer(_assign_cols_by_name)
+        elif eval_type == PythonEvalType.SQL_GROUPED_MAP_PANDAS_UDF:
+            ser = GroupPandasUDFSerializer(timezone, safecheck, _assign_cols_by_name)
+        elif eval_type == PythonEvalType.SQL_COGROUPED_MAP_ARROW_UDF:
             ser = CogroupArrowUDFSerializer(_assign_cols_by_name)
         elif eval_type == PythonEvalType.SQL_COGROUPED_MAP_PANDAS_UDF:
             ser = CogroupPandasUDFSerializer(timezone, safecheck, _assign_cols_by_name)
@@ -1595,8 +1600,6 @@ def read_udfs(pickleSer, infile, eval_type):
             )
         elif eval_type == PythonEvalType.SQL_MAP_ARROW_ITER_UDF:
             ser = ArrowStreamUDFSerializer()
-        elif eval_type == PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF:
-            ser = ArrowStreamGroupUDFSerializer(_assign_cols_by_name)
         else:
             # Scalar Pandas UDF handles struct type arguments as pandas DataFrames instead of
             # pandas Series. See SPARK-27240.

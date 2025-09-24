@@ -23,7 +23,7 @@ from collections import OrderedDict
 from decimal import Decimal
 from typing import cast
 
-from pyspark.sql import Row
+from pyspark.sql import Row, functions as sf
 from pyspark.sql.functions import (
     array,
     explode,
@@ -74,7 +74,7 @@ if have_pyarrow:
     not have_pandas or not have_pyarrow,
     cast(str, pandas_requirement_message or pyarrow_requirement_message),
 )
-class GroupedApplyInPandasTestsMixin:
+class ApplyInPandasTestsMixin:
     @property
     def data(self):
         return (
@@ -868,8 +868,42 @@ class GroupedApplyInPandasTestsMixin:
             with self.assertRaisesRegex(PythonException, error):
                 self._test_apply_in_pandas_returning_empty_dataframe(empty_df)
 
+    def test_arrow_batch_slicing(self):
+        with self.sql_conf({"spark.sql.execution.arrow.maxRecordsPerBatch": 1000}):
+            df = self.spark.range(10000000).select(
+                (sf.col("id") % 2).alias("key"), sf.col("id").alias("v")
+            )
+            cols = {f"col_{i}": sf.col("v") + i for i in range(20)}
+            df = df.withColumns(cols)
 
-class GroupedApplyInPandasTests(GroupedApplyInPandasTestsMixin, ReusedSQLTestCase):
+            def min_max_v(pdf):
+                return pd.DataFrame(
+                    {
+                        "key": [pdf.key.iloc[0]],
+                        "min": [pdf.v.min()],
+                        "max": [pdf.v.max()],
+                    }
+                )
+
+            result = (
+                df.groupBy("key")
+                .applyInPandas(min_max_v, "key long, min long, max long")
+                .sort("key")
+            )
+            expected = (
+                df.groupby("key")
+                .agg(sf.min("v").alias("min"), sf.max("v").alias("max"))
+                .sort("key")
+            )
+            self.assertEqual(expected.collect(), result.collect())
+
+    def test_negative_and_zero_batch_size(self):
+        for batch_size in [0, -1]:
+            with self.sql_conf({"spark.sql.execution.arrow.maxRecordsPerBatch": batch_size}):
+                ApplyInPandasTestsMixin.test_complex_groupby(self)
+
+
+class ApplyInPandasTests(ApplyInPandasTestsMixin, ReusedSQLTestCase):
     pass
 
 
