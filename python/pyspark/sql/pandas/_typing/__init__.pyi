@@ -20,6 +20,7 @@ from typing import (
     Any,
     Callable,
     Iterable,
+    Iterator,
     NewType,
     Tuple,
     Type,
@@ -57,6 +58,7 @@ ArrowGroupedMapUDFType = Literal[209]
 ArrowCogroupedMapUDFType = Literal[210]
 PandasGroupedMapUDFTransformWithStateType = Literal[211]
 PandasGroupedMapUDFTransformWithStateInitStateType = Literal[212]
+ArrowGroupedMapIterUDFType = Literal[215]
 
 class PandasVariadicScalarToScalarFunction(Protocol):
     def __call__(self, *_: DataFrameOrSeriesLike_) -> DataFrameOrSeriesLike_: ...
@@ -345,10 +347,18 @@ PandasCogroupedMapFunction = Union[
     Callable[[Any, DataFrameLike, DataFrameLike], DataFrameLike],
 ]
 
-ArrowGroupedMapFunction = Union[
+ArrowGroupedMapTableFunction = Union[
     Callable[[pyarrow.Table], pyarrow.Table],
     Callable[[Tuple[pyarrow.Scalar, ...], pyarrow.Table], pyarrow.Table],
 ]
+ArrowGroupedMapIterFunction = Union[
+    Callable[[Iterator[pyarrow.RecordBatch]], Iterator[pyarrow.RecordBatch]],
+    Callable[
+        [Tuple[pyarrow.Scalar, ...], Iterator[pyarrow.RecordBatch]], Iterator[pyarrow.RecordBatch]
+    ],
+]
+ArrowGroupedMapFunction = Union[ArrowGroupedMapTableFunction, ArrowGroupedMapIterFunction]
+
 ArrowCogroupedMapFunction = Union[
     Callable[[pyarrow.Table, pyarrow.Table], pyarrow.Table],
     Callable[[Tuple[pyarrow.Scalar, ...], pyarrow.Table, pyarrow.Table], pyarrow.Table],

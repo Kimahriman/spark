@@ -416,6 +416,7 @@ def pandas_udf(f=None, returnType=None, functionType=None):
         PythonEvalType.SQL_TRANSFORM_WITH_STATE_PANDAS_UDF,
         PythonEvalType.SQL_TRANSFORM_WITH_STATE_PANDAS_INIT_STATE_UDF,
         PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF,
+        PythonEvalType.SQL_GROUPED_MAP_ARROW_ITER_UDF,
         PythonEvalType.SQL_COGROUPED_MAP_ARROW_UDF,
         None,
     ]:  # None means it should infer the type from type hints.
@@ -458,6 +459,7 @@ def _validate_pandas_udf(f, evalType) -> int:
         PythonEvalType.SQL_TRANSFORM_WITH_STATE_PANDAS_UDF,
         PythonEvalType.SQL_TRANSFORM_WITH_STATE_PANDAS_INIT_STATE_UDF,
         PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF,
+        PythonEvalType.SQL_GROUPED_MAP_ARROW_ITER_UDF,
         PythonEvalType.SQL_COGROUPED_MAP_ARROW_UDF,
         PythonEvalType.SQL_ARROW_BATCHED_UDF,
     ]:

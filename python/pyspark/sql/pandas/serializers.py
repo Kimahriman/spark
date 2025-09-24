@@ -20,6 +20,7 @@ Serializers for PyArrow and pandas conversions. See `pyspark.serializers` for mo
 """
 
 from itertools import groupby
+from typing import Iterator
 
 import pyspark
 from pyspark.errors import PySparkRuntimeError, PySparkTypeError, PySparkValueError
@@ -729,19 +730,22 @@ class GroupArrowUDFSerializer(ArrowStreamGroupUDFSerializer):
         """
         import pyarrow as pa
 
+        def process_group(batches: "Iterator[pa.RecordBatch]"):
+            for batch in batches:
+                struct = batch.column(0)
+                yield pa.RecordBatch.from_arrays(struct.flatten(), schema=pa.schema(struct.type))
+
         dataframes_in_group = None
 
         while dataframes_in_group is None or dataframes_in_group > 0:
             dataframes_in_group = read_int(stream)
 
             if dataframes_in_group == 1:
-                structs = [
-                    batch.column(0) for batch in ArrowStreamSerializer.load_stream(self, stream)
-                ]
-                yield [
-                    pa.RecordBatch.from_arrays(struct.flatten(), schema=pa.schema(struct.type))
-                    for struct in structs
-                ]
+                batch_iter = process_group(ArrowStreamSerializer.load_stream(self, stream))
+                yield batch_iter
+                # Make sure the batches are fully iterated before getting the next group
+                for _ in batch_iter:
+                    pass
 
             elif dataframes_in_group != 0:
                 raise PySparkValueError(
