@@ -656,7 +656,8 @@ class SparkConnectPlanner(
           case PythonEvalType.SQL_GROUPED_MAP_PANDAS_UDF =>
             group.flatMapGroupsInPandas(Column(pythonUdf)).logicalPlan
 
-          case PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF =>
+          case PythonEvalType.SQL_GROUPED_MAP_ARROW_UDF |
+              PythonEvalType.SQL_GROUPED_MAP_ARROW_ITER_UDF =>
             group.flatMapGroupsInArrow(Column(pythonUdf)).logicalPlan
 
           case _ =>
