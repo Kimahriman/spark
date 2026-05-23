@@ -1386,6 +1386,7 @@ object SQLConf {
       .internal()
       .doc("When true, common conditional subexpressions will be eliminated.")
       .version("4.0.0")
+      .withBindingPolicy(ConfigBindingPolicy.SESSION)
       .booleanConf
       .createWithDefault(false)
 
