@@ -20,7 +20,7 @@ stages:
   - build
 
 variables:
-  BUILD_NAME: backports-rc
+  BUILD_NAME: backports
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
 
 build:
