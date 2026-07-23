@@ -21,7 +21,7 @@ stages:
 
 variables:
   BUILD_NAME: backports
-  HADOOP_VERSION: "3.4.2"
+  HADOOP_VERSION: "3.4.3"
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
 
 .build:
@@ -31,9 +31,9 @@ variables:
   image: ubuntu:jammy
   script:
     - apt-get update
-    - apt-get install -y curl git python3 python3-pip openjdk-17-jdk-headless
+    - apt-get install -y curl git zip python3 python3-pip openjdk-17-jdk-headless
     - ./dev/change-scala-version.sh $SCALA_VERSION
-    - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Phadoop-provided -Pyarn -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
+    - ./dev/make-distribution.sh --name $BUILD_NAME-$SCALA_VERSION --pip --tgz -Phive -Phive-thriftserver -Pyarn -Pscala-$SCALA_VERSION -Dhadoop.version=$HADOOP_VERSION
   artifacts:
     paths:
       - spark-*-bin-$BUILD_NAME-$SCALA_VERSION.tgz
