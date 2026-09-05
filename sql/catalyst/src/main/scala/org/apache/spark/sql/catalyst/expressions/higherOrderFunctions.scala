@@ -143,7 +143,23 @@ case class LambdaFunction(
   override def eval(input: InternalRow): Any = function.eval(input)
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    function.genCode(ctx)
+    if (!SQLConf.get.subexpressionEliminationEnabled) {
+      function.genCode(ctx)
+    } else {
+      val subExprCodes = ctx.subexpressionElimination(Seq(function), "lambda_")
+
+      val functionCode = ctx.withSubExprEliminationExprs(
+        subExprCodes.states, mergeWithExisting = true) {
+        Seq(function.genCode(ctx))
+      }.head
+
+      val subExprEval = ctx.evaluateSubExprEliminationState(subExprCodes.states.values)
+      functionCode.copy(code = code"""
+        |// lambda common sub-expressions
+        |$subExprEval
+        |${functionCode.code}
+      """)
+    }
   }
 
   override protected def withNewChildrenInternal(
@@ -236,10 +252,13 @@ trait HigherOrderFunction extends Expression with ExpectsInputTypes {
   @transient lazy val functionsForEval: Seq[Expression] = functions.map {
     case LambdaFunction(function, arguments, hidden) =>
       val argumentMap = arguments.map { arg => arg.exprId -> arg }.toMap
-      function.transformUp {
-        case variable: NamedLambdaVariable if argumentMap.contains(variable.exprId) =>
-          argumentMap(variable.exprId)
-      }
+      LambdaFunction(
+        function.transformUp {
+          case variable: NamedLambdaVariable if argumentMap.contains(variable.exprId) =>
+            argumentMap(variable.exprId)
+        },
+        arguments,
+        hidden)
   }
 
   override lazy val canonicalized: Expression = {
