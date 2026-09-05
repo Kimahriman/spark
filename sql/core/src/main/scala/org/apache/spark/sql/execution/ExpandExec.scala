@@ -163,7 +163,7 @@ case class ExpandExec(
     // repeated subexpressions both within a branch and across branches. The code evaluating the
     // common subexpressions is emitted once before the branch loop (see the end of this method).
     val subExprs: SubExprCodes = if (conf.subexpressionEliminationEnabled) {
-      ctx.subexpressionEliminationForWholeStageCodegen(boundProjections.flatten)
+      ctx.subexpressionElimination(boundProjections.flatten)
     } else {
       SubExprCodes(Map.empty, Seq.empty)
     }

@@ -908,7 +908,7 @@ case class HashAggregateExec(
     // create grouping key
     val unsafeRowKeyCode = GenerateUnsafeProjection.createCode(
       ctx, bindReferences[Expression](groupingExpressions, child.output))
-    val fastRowKeys = ctx.generateExpressions(
+    val (fastRowKeys, _) = ctx.generateExpressions(
       bindReferences[Expression](groupingExpressions, child.output))
     val unsafeRowKeys = unsafeRowKeyCode.value
     val unsafeRowBuffer = ctx.freshName("unsafeRowAggBuffer")
@@ -1155,7 +1155,7 @@ case class HashAggregateExec(
       val boundUpdateExprs = updateExprs.map { updateExprsForOneFunc =>
         bindReferences(updateExprsForOneFunc, inputAttrs)
       }
-      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(boundUpdateExprs.flatten)
+      val subExprs = ctx.subexpressionElimination(boundUpdateExprs.flatten)
       val effectiveCodes = ctx.evaluateSubExprEliminationState(subExprs.states.values)
       val unsafeRowBufferEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
         ctx.withSubExprEliminationExprs(subExprs.states) {
@@ -1201,7 +1201,7 @@ case class HashAggregateExec(
           val boundUpdateExprs = updateExprs.map { updateExprsForOneFunc =>
             bindReferences(updateExprsForOneFunc, inputAttrs)
           }
-          val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(boundUpdateExprs.flatten)
+          val subExprs = ctx.subexpressionElimination(boundUpdateExprs.flatten)
           val effectiveCodes = ctx.evaluateSubExprEliminationState(subExprs.states.values)
           val fastRowEvals = boundUpdateExprs.map { boundUpdateExprsForOneFunc =>
             ctx.withSubExprEliminationExprs(subExprs.states) {

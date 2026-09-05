@@ -3906,6 +3906,120 @@ class DataFrameFunctionsSuite extends SharedSparkSession {
     testArrayOfPrimitiveTypeContainsNull()
   }
 
+  test("transform function - subexpression elimination") {
+    val df = Seq[Seq[Integer]](
+      Seq(1, 2, 3, 4, 5)
+    ).toDF("i")
+
+    def countUdfCalls(subexpressionEliminationEnabled: Boolean): Long = {
+      val count = spark.sparkContext.longAccumulator
+      val func = udf((x: Integer) => {
+        count.add(1)
+        x
+      })
+
+      withSQLConf(
+        SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key ->
+        subexpressionEliminationEnabled.toString) {
+        val result = df.select(
+          transform(col("i"), x => func(x) + func(x)))
+        assert(result.collect().toSeq == Seq(Row(Seq(2, 4, 6, 8, 10))))
+      }
+      count.value
+    }
+
+    assert(countUdfCalls(subexpressionEliminationEnabled = true) == 5)
+    assert(countUdfCalls(subexpressionEliminationEnabled = false) == 10)
+  }
+
+  test("transform function - subexpression elimination inside and outside lambda") {
+    val df = spark.read.json(Seq(
+      """
+      {
+        "outer": {
+          "inner": {
+            "a": 1,
+            "b": 2,
+            "c": 3
+          }
+        },
+        "arr": [
+          1,
+          2,
+          3
+        ]
+      }
+      """).toDS())
+
+    val result = df.select(
+      col("outer.inner.b"),
+      col("outer.inner.c"),
+      transform(col("arr"), x => x + col("outer.inner.a") + col("outer.inner.a")))
+
+    checkAnswer(result, Seq(Row(2, 3, Seq(3, 4, 5))))
+  }
+
+  test("transform function - subexpression elimination reuses outer expressions") {
+    val df = Seq((1, Seq(1, 2, 3))).toDF("a", "arr")
+
+    def countUdfCalls(subexpressionEliminationEnabled: Boolean): Long = {
+      val count = spark.sparkContext.longAccumulator
+      val func = udf((x: Int) => {
+        count.add(1)
+        x
+      })
+
+      withSQLConf(
+        SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key ->
+          subexpressionEliminationEnabled.toString) {
+        val result = df.select(
+          func(col("a")),
+          func(col("a")),
+          transform(col("arr"), x => func(col("a")) + func(col("a"))))
+        assert(result.collect().toSeq == Seq(Row(1, 1, Seq(2, 2, 2))))
+      }
+      count.value
+    }
+
+    assert(countUdfCalls(subexpressionEliminationEnabled = true) == 1)
+    assert(countUdfCalls(subexpressionEliminationEnabled = false) == 8)
+  }
+
+  test("transform function - subexpression elimination with split code and null lambda values") {
+    val df = Seq[Seq[Integer]](Seq(1, null, 3)).toDF("i").cache()
+    df.count()
+
+    withSQLConf(
+      SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key -> "true",
+      SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY",
+      SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> "1") {
+      val result = df.select(transform(col("i"), x => (x + 1) + (x + 1)))
+      checkAnswer(result, Seq(Row(Seq(4, null, 8))))
+    }
+  }
+
+  test("transform function - split subexpression elimination reuses outer expressions") {
+    val df = Seq((1, Seq(1, 2))).toDF("a", "arr").cache()
+    df.count()
+
+    withSQLConf(
+      SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key -> "true",
+      SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY",
+      SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> "100") {
+      val outerExpr = bitwise_not(col("a"))
+      val result = df.select(
+        outerExpr,
+        outerExpr,
+        transform(col("arr"), x => {
+          val concatArgs = Seq.fill(20)(concat(x.cast(StringType), outerExpr.cast(StringType)))
+          val commonExpr = length(concat(concatArgs: _*))
+          commonExpr + commonExpr
+        }))
+
+      checkAnswer(result, Seq(Row(-2, -2, Seq(120, 120))))
+    }
+  }
+
   test("transform function - array for non-primitive type") {
     val df = Seq(
       Seq("c", "a", "b"),
